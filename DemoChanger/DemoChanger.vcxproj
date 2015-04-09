@@ -1,0 +1,87 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{AC743D0B-80CD-4A31-B9DF-F4927DE259B8}</ProjectGuid>
+    <RootNamespace>DemoChanger</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>C:\Users\dan\Downloads\jansson-2.5\src;C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\JKDemoMetadata;E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp;C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\DemoTrimmer;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>C:\Users\dan\Downloads\jansson-2.5\win32\vs2010\Output\Debug\jansson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <AdditionalIncludeDirectories>C:\Users\dan\Downloads\jansson-2.5\src;C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\JKDemoMetadata;E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp;C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\DemoTrimmer;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>C:\Users\dan\Downloads\jansson-2.5\win32\vs2010\Output\Release\jansson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="..\DemoTrimmer\demo_utils.h" />
+    <ClInclude Include="..\JKDemoMetadata\demo_common.h" />
+    <ClInclude Include="..\JKDemoMetadata\deps.h" />
+    <ClInclude Include="..\JKDemoMetadata\utils.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\DemoTrimmer\demo_utils.cpp" />
+    <ClCompile Include="..\JKDemoMetadata\cl_parse.cpp" />
+    <ClCompile Include="..\JKDemoMetadata\cmd.cpp" />
+    <ClCompile Include="..\JKDemoMetadata\deps.cpp" />
+    <ClCompile Include="..\JKDemoMetadata\utils.cpp" />
+    <ClCompile Include="demo_changer.cpp" />
+    <ClCompile Include="E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\huffman.cpp" />
+    <ClCompile Include="E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\msg.cpp" />
+    <ClCompile Include="E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\q_math.cpp" />
+    <ClCompile Include="E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\q_shared.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
