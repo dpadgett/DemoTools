@@ -320,7 +320,7 @@ int main( int argc, char **argv ) {
 			if (previousSnapshot.valid && ctx->cl.serverId == previousServerId) {
 				// need to still process commands for map_restart to reset the serverid
 				// process any new server commands
-				for ( ; ctx->clc.lastExecutedServerCommand < ctx->clc.serverCommandSequence && ctx->cl.serverId == previousServerId; ctx->clc.lastExecutedServerCommand++ ) {
+				for ( ; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence && ctx->cl.serverId == previousServerId; ctx->clc.lastExecutedServerCommand++ ) {
 					char *command = ctx->clc.serverCommands[ ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 ) ];
 					Cmd_TokenizeString( command );
 					char *cmd = Cmd_Argv( 0 );
@@ -373,8 +373,13 @@ int main( int argc, char **argv ) {
 			finalScores = qfalse;
 		}
 
+		
+		if ( ctx->cl.snap.ps.pm_type == PM_INTERMISSION && scoreRoot != NULL ) {
+			inIntermission = qtrue;
+		}
+
 		// process any new server commands
-		for ( ; ctx->clc.lastExecutedServerCommand < ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
+		for ( ; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
 			char *command = ctx->clc.serverCommands[ ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 ) ];
 			Cmd_TokenizeString( command );
 			char *cmd = Cmd_Argv( 0 );
@@ -493,9 +498,6 @@ int main( int argc, char **argv ) {
 		if ( !clientIdInitialized ) {
 			json_object_set_new( client, "id", json_integer( ctx->clc.clientNum ) );
 			clientIdInitialized = qtrue;
-		}
-		if ( ctx->cl.snap.ps.pm_type == PM_INTERMISSION && scoreRoot != NULL ) {
-			inIntermission = qtrue;
 		}
 		// process any events
 		entityState_t *clientEnts[MAX_CLIENTS];
