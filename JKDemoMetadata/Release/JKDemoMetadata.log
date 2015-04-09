@@ -1,18 +1,10 @@
-﻿Build started 3/18/2015 3:14:07 AM.
-     1>Project "C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\JKDemoMetadata\JKDemoMetadata.vcxproj" on node 4 (build target(s)).
+﻿Build started 4/9/2015 3:54:03 AM.
+     1>Project "C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\JKDemoMetadata\JKDemoMetadata.vcxproj" on node 2 (build target(s)).
      1>InitializeBuildStatus:
          Creating "Release\JKDemoMetadata.unsuccessfulbuild" because "AlwaysCreate" was specified.
        ClCompile:
-         C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\bin\CL.exe /c /I"C:\Users\dan\Downloads\jansson-2.5\src" /I"E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp" /Zi /nologo /W3 /WX- /O2 /Oi /Oy- /GL /D WIN32 /D NDEBUG /D _CONSOLE /D _WINDOWS /D _CRT_SECURE_NO_WARNINGS /D __NO_JK2 /D FINAL_BUILD /D "CMAKE_INTDIR=\"Release\"" /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /Fo"Release\\" /Fd"Release\vc100.pdb" /Gd /TP /analyze- /errorReport:prompt "E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\huffman.cpp" "E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\msg.cpp" "E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\q_math.cpp" "E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\q_shared.cpp" cl_parse.cpp cmd.cpp deps.cpp main.cpp utils.cpp
-         huffman.cpp
-         msg.cpp
-         q_math.cpp
-         q_shared.cpp
-         cl_parse.cpp
-         cmd.cpp
-         deps.cpp
+         C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\bin\CL.exe /c /I"C:\Users\dan\Downloads\jansson-2.5\src" /I"E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp" /Zi /nologo /W3 /WX- /O2 /Oi /Oy- /GL /D WIN32 /D NDEBUG /D _CONSOLE /D _WINDOWS /D _CRT_SECURE_NO_WARNINGS /D __NO_JK2 /D FINAL_BUILD /D "CMAKE_INTDIR=\"Release\"" /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /Fo"Release\\" /Fd"Release\vc100.pdb" /Gd /TP /analyze- /errorReport:prompt main.cpp
          main.cpp
-         utils.cpp
        Link:
          C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\bin\link.exe /ERRORREPORT:PROMPT /OUT:"C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\Release\JKDemoMetadata.exe" /INCREMENTAL:NO /NOLOGO "C:\Users\dan\Downloads\jansson-2.5\win32\vs2010\Output\Release\jansson.lib" kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /ManifestFile:"Release\JKDemoMetadata.exe.intermediate.manifest" /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /DEBUG /PDB:"C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\Release\JKDemoMetadata.pdb" /SUBSYSTEM:CONSOLE /OPT:REF /OPT:ICF /LTCG /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\Release\JKDemoMetadata.lib" /MACHINE:X86 Release\cl_parse.obj
          Release\cmd.obj
@@ -35,4 +27,4 @@
 
 Build succeeded.
 
-Time Elapsed 00:00:04.89
+Time Elapsed 00:00:01.99

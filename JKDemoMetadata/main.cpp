@@ -10,6 +10,9 @@
 #define VERSION "0.1b"
 extern void system( char * ); 
 
+// if any code changes are made, bump this number to track which demos are updated / not updated
+const int kSchemaVersion = 2;
+
 typedef struct info_s {
 	long startTime;
 	json_t *arr;
@@ -227,6 +230,7 @@ int main( int argc, char **argv ) {
 	memset( lastFrag, 0, sizeof( lastFrag ) );
 
 	json_t *root = json_object();
+	json_object_set_new( root, "version", json_integer( kSchemaVersion ) );
 
 	json_t *client = json_object();
 	json_object_set( root, "client", client );
@@ -340,6 +344,8 @@ int main( int argc, char **argv ) {
 			mapStartTimeInitialized = qfalse;
 			json_object_set_new( map, "map_start_time", json_integer( -1 ) );
 			json_object_set_new( map, "map_end_time", json_integer( -1 ) );
+			json_object_set_new( map, "serverId", json_integer( ctx->cl.serverId ) );
+			json_object_set_new( map, "checksumFeed", json_integer( ctx->clc.checksumFeed ) );
 			json_object_set_new( root, "sv_hostname", json_string( cp1252toUTF8( Info_ValueForKey( info, "sv_hostname" ) ) ) );
 			json_object_set_new( root, "g_motd", json_string( cp1252toUTF8( ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ CS_MOTD ] ) ) );
 			json_array_append( maps, map );
