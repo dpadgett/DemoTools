@@ -26,7 +26,8 @@ void writeDemoHeader(FILE *fp) {
 	MSG_WriteLong( &buf, ctx->clc.reliableSequence );
 
 	MSG_WriteByte (&buf, svc_gamestate);
-	MSG_WriteLong (&buf, ctx->clc.serverCommandSequence );
+	// hack - subtract out - MAX_RELIABLE_COMMANDS + 1 from command sequence so it still executes commands from first snapshot
+	MSG_WriteLong( &buf, ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 1 );
 
 	// configstrings
 	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {

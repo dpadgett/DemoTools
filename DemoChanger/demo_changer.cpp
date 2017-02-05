@@ -44,6 +44,10 @@ msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
 
 msg_t *ReadNextMessage( demoEntry_t *demo ) {
 	msg_t *msg;
+	int entityEventSequence = 0;
+	if ( ctx->cl.snap.valid ) {
+		entityEventSequence = ctx->cl.snap.ps.entityEventSequence;
+	}
 	while ( ( msg = ReadNextMessageRaw( demo ) ) != nullptr ) {
 		int lastSnapFlags = ctx->cl.snap.snapFlags;
 		qboolean lastSnapValid = ctx->cl.snap.valid;
@@ -59,6 +63,7 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			FreeMsg( msg );
 			continue;
 		}
+		ctx->cl.snap.ps.entityEventSequence = entityEventSequence;
 		if ( lastSnapValid && ( ( lastSnapFlags ^ ctx->cl.snap.snapFlags ) & SNAPFLAG_SERVERCOUNT ) != 0 ) {
 			demo->currentMap++;
 		}
@@ -154,7 +159,7 @@ static int QDECL SV_QsortEntityNumbers( const void *a, const void *b ) {
 SV_AddEntToSnapshot
 ===============
 */
-static void SV_AddEntToSnapshot( entityState_t *ent, snapshotEntityNumbers_t *eNums ) {
+static void SV_AddEntToSnapshot( entityState_t *ent, snapshotEntityNumbers_t *eNums, qboolean overwrite = qfalse ) {
 	// if we have already added this entity to this snapshot, don't add again
 	/*if ( svEnt->snapshotCounter == sv.snapshotCounter ) {
 		return;
@@ -162,6 +167,9 @@ static void SV_AddEntToSnapshot( entityState_t *ent, snapshotEntityNumbers_t *eN
 	svEnt->snapshotCounter = sv.snapshotCounter;*/
 	for ( int idx = 0; idx < eNums->numSnapshotEntities; idx++ ) {
 		if ( eNums->snapshotEntities[idx]->number == ent->number ) {
+			if ( overwrite ) {
+				eNums->snapshotEntities[idx] = ent;
+			}
 			return;
 		}
 	}
@@ -513,7 +521,19 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 		}
 	}
 	// start with a base ctx
-	mergedCtx = *entryList[0].ctx;
+	// should be the earliest one to pick up earliest configstrings
+	// note this could actually be wrong cuz sometimes serverTime resets on map restart
+	{
+		int minTime = entryList[0].ctx->cl.snap.serverTime;
+		int minIdx = 0;
+		for ( idx = 0; idx < numDemos; idx++ ) {
+			if ( entryList[idx].ctx->cl.snap.serverTime < minTime ) {
+				minTime = entryList[idx].ctx->cl.snap.serverTime;
+				minIdx = idx;
+			}
+		}
+		mergedCtx = *entryList[minIdx].ctx;
+	}
 	mergedCtx.clc.lastExecutedServerCommand = mergedCtx.clc.serverCommandSequence = entryList[0].firstServerCommand;
 	mergedCtx.clc.serverCommandSequence--;
 	ctx = &mergedCtx;
@@ -527,7 +547,7 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 	json_t *missingFrames = json_array();
 	while ( true ) {
 		// find frame time
-		int frameTime = MAXINT;
+		int frameTime = (int) (((unsigned int) -1) >> 1);//MAXINT;
 		int frameIdx = -1;
 		for ( idx = 0; idx < numDemos; idx++ ) {
 			if ( entryList[idx].ctx->cl.snap.serverTime < frameTime && !entryList[idx].eos ) {
@@ -624,7 +644,12 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 				}
 				// search for place to insert it
 				bool newCommand = qtrue;
-				for ( int snapCmdNum = entryList[idx].serverCommandSyncIdx; snapCmdNum <= ctx->clc.serverCommandSequence; snapCmdNum++ ) {
+				int start = entryList[idx].serverCommandSyncIdx;
+				if ( start == 0 ) {
+					// normally start at sync idx even if it's in a previous frame, to account for frame drops
+					start = firstServerCommand;
+				}
+				for ( int snapCmdNum = start; snapCmdNum <= ctx->clc.serverCommandSequence; snapCmdNum++ ) {
 					if ( !Q_stricmpn( command, ctx->clc.serverCommands[ snapCmdNum & ( MAX_RELIABLE_COMMANDS - 1 ) ], MAX_STRING_CHARS ) ) {
 						newCommand = qfalse;
 						curCommand = snapCmdNum + 1;
@@ -645,11 +670,19 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 					curCommand++;
 					entryList[idx].serverCommandSyncIdx = curCommand;
 					//printf( "idx:%d cmd:%d Command: %s\n", idx, commandNum, command );
-					if ( !strcmp( cmd, "cs" ) ) {
-						// needed so util funcs can work against mergedCtx
-						CL_ConfigstringModified();
-					}
 				}
+			}
+		}
+		for ( int commandNum = firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
+			char *command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+			Cmd_TokenizeString( command );
+			char *cmd = Cmd_Argv( 0 );
+			if ( !strcmp( cmd, "cs" ) ) {
+				// needed so util funcs can work against mergedCtx
+				CL_ConfigstringModified();
+				/*if ( atoi(Cmd_Argv( 1 )) == 1 ) {
+					Com_Printf( "Server id: %s\n", Info_ValueForKey( Cmd_ArgsFrom( 2 ), "sv_serverid" ) );
+				}*/
 			}
 		}
 		if (lastTeamInfoTime + 3000 < frameTime) {
@@ -793,7 +826,7 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 									if (itemNum == HI_MEDPAC || itemNum == HI_MEDPAC_BIG) {
 										if (ci[es.number].updateTime != frameTime || !ci[es.number].updatedFromTinfo) {
 											ci[es.number].health += item->quantity;
-											ci[es.number].health = min(100, ci[es.number].health);
+											ci[es.number].health = Q_min(100, ci[es.number].health);
 											ci[es.number].updateTime = frameTime;
 											ci[es.number].updatedFromTinfo = qfalse;
 										}
@@ -833,17 +866,17 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 										if (ci[es.number].updateTime != frameTime || !ci[es.number].updatedFromTinfo) {
 											if (item->giType == IT_HEALTH) {
 												ci[es.number].health += item->quantity;
-												ci[es.number].health = min(100, ci[es.number].health);
+												ci[es.number].health = Q_min(100, ci[es.number].health);
 												ci[es.number].updateTime = frameTime;
 												ci[es.number].updatedFromTinfo = qfalse;
 											} else if (item->giType == IT_ARMOR) {
 												ci[es.number].armor += item->quantity;
 												if (item->quantity == 25) {
 													// small armor clamps to 100 max
-													ci[es.number].armor = min(100, ci[es.number].health);
+													ci[es.number].armor = Q_min(100, ci[es.number].health);
 												} else {
 													// large armor has max 200
-													ci[es.number].armor = min(200, ci[es.number].health);
+													ci[es.number].armor = Q_min(200, ci[es.number].health);
 												}
 												ci[es.number].updateTime = frameTime;
 												ci[es.number].updatedFromTinfo = qfalse;
@@ -876,7 +909,7 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 										if (ci[clnum].updateTime != frameTime || !ci[clnum].updatedFromTinfo) {
 											if (es.eventParm == 1) { //eventParm 1 is heal
 												ci[clnum].health += 50;
-												ci[clnum].health = min(100, ci[clnum].health);
+												ci[clnum].health = Q_min(100, ci[clnum].health);
 												ci[clnum].updateTime = frameTime;
 												ci[clnum].updatedFromTinfo = qfalse;
 											} else { //eventParm 2 is force regen
@@ -892,7 +925,7 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 								if (clnum >= 0 && clnum < MAX_CLIENTS) {
 									if (ci[clnum].updateTime != frameTime || !ci[clnum].updatedFromTinfo) {
 										ci[clnum].armor -= es.time2;
-										ci[clnum].armor = max(0, ci[clnum].armor);
+										ci[clnum].armor = Q_max(0, ci[clnum].armor);
 										ci[clnum].updateTime = frameTime;
 										ci[clnum].updatedFromTinfo = qfalse;
 									}
@@ -955,7 +988,7 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 
 								if (ci[clnum].updateTime != frameTime || !ci[clnum].updatedFromTinfo) {
 										ci[clnum].health -= damage;
-										ci[clnum].health = max(0, ci[clnum].health);
+										ci[clnum].health = Q_max(0, ci[clnum].health);
 										ci[clnum].updateTime = frameTime;
 										ci[clnum].updatedFromTinfo = qfalse;
 									}
@@ -969,7 +1002,9 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 				BG_PlayerStateToEntityStateExtraPolate( &dsnap->ps, &dentity[idx], dsnap->ps.commandTime, qfalse );
 				// this pains me to do but it bugs the ui, which tries to display a health meter for these players
 				dentity[idx].health = 0;
-				SV_AddEntToSnapshot( &dentity[idx], &entityNumbers );
+				//TODO: this must be fixed.  events are duplicated this way.  instead this should first check if there were
+				// any temp events already created for this player.  if so use those.  otherwise create a new temp event.
+				SV_AddEntToSnapshot( &dentity[idx], &entityNumbers, qtrue );
 				owners[dentity[idx].number] |= 1 << idx;
 
 				if ( dsnap->ps.clientNum == clientNum ) {

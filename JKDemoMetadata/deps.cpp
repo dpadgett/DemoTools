@@ -60,6 +60,7 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign) {
 #endif
 
 static FILE *fileHandles[1024];
+static char fileNames[1024][MAX_OSPATH];
 static int fileHandleCount = 1;
 static long bytesRead[1024];
 long QDECL FS_FOpenFileRead( const char *filename, fileHandle_t *fileHandle, qboolean uniqueFILE) {
@@ -79,18 +80,45 @@ long QDECL FS_FOpenFileRead( const char *filename, fileHandle_t *fileHandle, qbo
 		return -1;
 	}
 	bytesRead[*fileHandle] = 0;
+	Q_strncpyz( fileNames[*fileHandle], filename, sizeof( *fileNames ) );
 	fseek( fileHandles[*fileHandle], 0, SEEK_END );
 	long length = ftell( fileHandles[*fileHandle] );
 	fseek( fileHandles[*fileHandle], 0, SEEK_SET );
 	return length;
 }
 
+#ifdef WIN32
+#include <Windows.h>
+#else
+#include <unistd.h>
+#endif
+
+qboolean live_mode = qfalse;
 int QDECL FS_Read( void *data, int dataSize, fileHandle_t fileHandle ) {
 	int totalRead = 0;
-	while ( totalRead < dataSize && !feof( fileHandles[fileHandle] ) ) {
-		totalRead += fread( data, 1, dataSize - totalRead, fileHandles[fileHandle] );
+	while ( totalRead < dataSize ) {
+		if ( live_mode ) {
+			int stepSize = 100;
+			for ( int timeWaited = 0; timeWaited < 5000 && feof( fileHandles[fileHandle] ); timeWaited += stepSize ) {
+#ifdef WIN32
+				Sleep( stepSize );
+#else
+				usleep( stepSize * 1000 );
+#endif
+				fclose( fileHandles[fileHandle] );
+				fileHandles[fileHandle] = fopen( fileNames[fileHandle], "rb" );
+				if ( 0 != fseek( fileHandles[fileHandle], bytesRead[fileHandle], SEEK_SET ) ) {
+					return 0;
+				}
+			}
+		}
+		if ( feof( fileHandles[fileHandle] ) ) {
+			break;
+		}
+		int read = fread( (void *)((char *)data + totalRead), 1, dataSize - totalRead, fileHandles[fileHandle] );
+		totalRead += read;
+		bytesRead[fileHandle] += read;
 	}
-	bytesRead[fileHandle] += totalRead;
 	return totalRead;
 }
 
@@ -125,6 +153,16 @@ void CL_ConfigstringModified( void ) {
 	old = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ index ];
 	if ( !strcmp( old, s ) ) {
 		return;		// unchanged
+	}
+
+	// uber hack to work around base_enhanced forced net settings
+	char buf[MAX_INFO_STRING];
+	if ( index == CS_SYSTEMINFO ) {
+		if ( *Info_ValueForKey( s, "sv_serverid" ) == '\0' ) {
+			// just concat them instead of overwriting in this case
+			Com_sprintf( buf, sizeof( buf ), "%s%s", old, s );
+			s = buf;
+		}
 	}
 
 	// build the new gameState_t

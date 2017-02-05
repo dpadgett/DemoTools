@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include "qcommon/q_shared.h"
 #include "qcommon/qcommon.h"
 #include "client/client.h"
@@ -11,7 +13,9 @@
 extern void system( char * ); 
 
 // if any code changes are made, bump this number to track which demos are updated / not updated
-const int kSchemaVersion = 2;
+// small version history:
+// version 4: added "raw" times which are not affected by game pauses.
+const int kSchemaVersion = 4;
 
 typedef struct info_s {
 	long startTime;
@@ -26,6 +30,7 @@ typedef struct teamInfo_s {
 
 typedef struct nameInfo_s {
 	char name[MAX_STRING_CHARS];
+	int64_t uniqueId;
 	int isBot;
 	info_t info;
 } nameInfo_t;
@@ -48,6 +53,7 @@ static void updateClientInfo(clientInfoTrack_t *cit) {
 			info_t *info = cit->getInfo( allInfo );
 			if ( info->current != NULL ) {
 				json_object_set_new( info->current, va( "%s_end_time", cit->keyPrefix ), json_integer( getCurrentTime() ) );
+				json_object_set_new( info->current, va( "%s_end_time_raw", cit->keyPrefix ), json_integer( ctx->cl.snap.serverTime ) );
 				json_decref( info->current );
 			}
 			if ( playerActive( clientIdx ) ) {
@@ -56,6 +62,7 @@ static void updateClientInfo(clientInfoTrack_t *cit) {
 				info->current = json_object();
 				cit->makeValueNode( allInfo );
 				json_object_set_new( info->current, va( "%s_start_time", cit->keyPrefix ), json_integer( getCurrentTime() ) );
+				json_object_set_new( info->current, va( "%s_start_time_raw", cit->keyPrefix ), json_integer( ctx->cl.snap.serverTime ) );
 				if ( info->arr == NULL ) {
 					info->arr = json_array();
 					json_object_set( cit->rootNode, va( "%d", clientIdx ), info->arr );
@@ -68,13 +75,14 @@ static void updateClientInfo(clientInfoTrack_t *cit) {
 	}
 }
 
-static void finishClientInfo( clientInfoTrack_t *cit, long timestamp ) {
+static void finishClientInfo( clientInfoTrack_t *cit, long timestamp, long rawtimestamp ) {
 	for ( int clientIdx = 0; clientIdx < MAX_CLIENTS; clientIdx++ ) {
 		void *allInfo = (void *)((char *)cit->allInfos + (clientIdx * cit->infoSize));
 		info_t *info = cit->getInfo( allInfo );
 		if ( info->current != NULL ) {
 			// finish last current team node
 			json_object_set_new( info->current, va( "%s_end_time", cit->keyPrefix ), json_integer( timestamp ) );
+			json_object_set_new( info->current, va( "%s_end_time_raw", cit->keyPrefix ), json_integer( rawtimestamp ) );
 			json_decref( info->current );
 			info->current = NULL;
 			json_decref( info->arr );
@@ -114,17 +122,29 @@ qboolean updateName( void *allInfo, int clientIdx ) {
 	nameInfo_t *ni = (nameInfo_t *)allInfo;
 	const char *newName = getPlayerNameUTF8( clientIdx );
 	int newIsBot = playerSkill( clientIdx ) == -1 ? 0 : 1;
-	if ( ni->info.current == NULL || ( ni->info.current != NULL && ( Q_strncmp( newName, ni->name, sizeof( ni->name ) ) || ni->isBot != newIsBot || !playerActive( clientIdx ) ) ) ) {
+	int64_t newUniqueId = getUniqueId( clientIdx );
+	if ( ni->info.current == NULL || ( ni->info.current != NULL && ( Q_strncmp( newName, ni->name, sizeof( ni->name ) ) || ni->isBot != newIsBot || newUniqueId != ni->uniqueId || !playerActive( clientIdx ) ) ) ) {
 		Q_strncpyz( ni->name, newName, sizeof( ni->name ) );
+		ni->uniqueId = newUniqueId;
 		ni->isBot = newIsBot;
 		return qtrue;
 	}
 	return qfalse;
 }
 
+#if (defined _MSC_VER)
+#define PRIu64 "I64u"
+#endif
+
 void makeNameValueNode( void *allInfo ) {
 	nameInfo_t *ni = (nameInfo_t *)allInfo;
 	json_object_set_new( ni->info.current, "name", json_string( ni->name ) );
+	if ( ni->uniqueId != 0 ) {
+		int guid_hash = ni->uniqueId & 0xFFFFFFFF;
+		int ip_hash = ni->uniqueId >> 32;
+		json_object_set_new( ni->info.current, "guid_hash", json_integer( guid_hash ) );
+		json_object_set_new( ni->info.current, "ip_hash", json_integer( ip_hash ) );
+	}
 	json_object_set_new( ni->info.current, "is_bot", json_integer( ni->isBot ) );
 }
 
@@ -210,7 +230,8 @@ int main( int argc, char **argv ) {
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
 	if ( argc < 2 ) {
 		printf( "No file specified.\n"
-				"Usage: \"%s\" filename.dm_26\n", argv[0] );
+				"Usage: \"%s\" filename.dm_26 [live]\n"
+				"In live mode, the file is tailed until intermission.\n", argv[0] );
 		//system( "pause" );
 		return -1;
 	}
@@ -223,6 +244,8 @@ int main( int argc, char **argv ) {
 		//system( "pause" );
 		return -1;
 	}
+
+	live_mode = (qboolean) (argc > 2 && !Q_stricmp("live", argv[2]));
 
 	// set to qtrue to emit executable .cfg files to recreate the makermod entity state from the demo
 	qboolean parseMakerEnts = qfalse;
@@ -285,7 +308,7 @@ int main( int argc, char **argv ) {
 	qboolean finalScores = qfalse;
 
 	qboolean demoFinished = qfalse;
-	while ( !demoFinished ) {
+	while ( !demoFinished && !( live_mode && finalScores ) ) {
 		msg_t msg;
 		byte msgData[ MAX_MSGLEN ];
 		MSG_Init( &msg, msgData, sizeof( msgData ) );
@@ -307,16 +330,40 @@ int main( int argc, char **argv ) {
 		/*if (cl.snap.serverTime == 1626964134) {
 			printf("at bad time");
 		}*/
+		// jump ahead to resolve a new serverId as we need to know if it changed before doing anything
 		const char *systemInfo = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ CS_SYSTEMINFO ];
+		int start = Q_max( ctx->clc.lastExecutedServerCommand, ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 1 );
+		for (int cmdIdx = start; cmdIdx <= ctx->clc.serverCommandSequence; cmdIdx++ ) {
+			char *command = ctx->clc.serverCommands[ cmdIdx & ( MAX_RELIABLE_COMMANDS - 1 ) ];
+			Cmd_TokenizeString( command );
+			char *cmd = Cmd_Argv( 0 );
+			if ( !strcmp( cmd, "cs" ) ) {
+				CL_ConfigstringModified();
+				systemInfo = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ CS_SYSTEMINFO ];
+			}
+		}
 		ctx->cl.serverId = atoi( Info_ValueForKey( systemInfo, "sv_serverid" ) );
+		qboolean trashCurrentMap = qfalse;
+		if ( previousSnapshot.valid && ctx->cl.snap.serverTime < previousSnapshot.serverTime ) {
+			// time warped backwards, this could happen right after a gamestate - a few snaps can be sent with old
+			// timebase until client acks the gamestate.  in this case it's somewhat expected that the client drops
+			// these snaps.  in our case we already processed them, but we just throw out what we did so far and start
+			// over.
+			trashCurrentMap = qtrue;
+			previousServerId = -1;
+		}
 		// unfortunately using serverId is buggy for map_restart since game waits some frames before sending the new cs
-		if ( (ctx->cl.snap.snapFlags ^ previousSnapshot.snapFlags) & SNAPFLAG_SERVERCOUNT || map == NULL ) {
-			finishClientInfo( &clientTeamsTrack, previousTime );
-			finishClientInfo( &clientNamesTrack, previousTime );
+		if ( (ctx->cl.snap.snapFlags ^ previousSnapshot.snapFlags) & SNAPFLAG_SERVERCOUNT || map == NULL || trashCurrentMap ) {
+			finishClientInfo( &clientTeamsTrack, previousTime, previousSnapshot.serverTime );
+			finishClientInfo( &clientNamesTrack, previousTime, previousSnapshot.serverTime );
 
 			if ( map != NULL ) {
 				json_object_set_new( map, "map_end_time", json_integer( previousTime ) );
 				json_decref( map );
+				if ( trashCurrentMap ) {
+					json_array_remove( maps, json_array_size( maps ) - 1 );
+					json_delete( map );
+				}
 				map = NULL;
 			}
 
@@ -330,6 +377,7 @@ int main( int argc, char **argv ) {
 					char *cmd = Cmd_Argv( 0 );
 					if ( !strcmp( cmd, "cs" ) ) {
 						CL_ConfigstringModified();
+						systemInfo = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ CS_SYSTEMINFO ];
 						ctx->cl.serverId = atoi( Info_ValueForKey( systemInfo, "sv_serverid" ) );
 					}
 				}
@@ -499,6 +547,7 @@ int main( int argc, char **argv ) {
 		updateClientInfo( &clientTeamsTrack );
 		if ( !mapStartTimeInitialized ) {
 			json_object_set_new( map, "map_start_time", json_integer( getCurrentTime() ) );
+			json_object_set_new( map, "map_start_time_raw", json_integer( ctx->cl.snap.serverTime ) );
 			mapStartTimeInitialized = qtrue;
 		}
 		if ( !clientIdInitialized ) {
@@ -545,6 +594,7 @@ int main( int argc, char **argv ) {
 						//Com_Printf( "frag: %x\n", (int) frag );
 						lastFrag[ attacker ] = frag;
 						json_object_set_new( frag, "time", json_integer( getCurrentTime() ) );
+						json_object_set_new( frag, "time_raw", json_integer( ctx->cl.snap.serverTime ) );
 						json_object_set_new( frag, "human_time", json_string(
 							va( "%02d:%02d:%02d.%03d", seconds / 60 / 60, (seconds / 60) % 60, seconds % 60, millis % 1000 ) ) );
 						json_object_set_new( frag, "attacker", json_integer( attacker ) );
@@ -708,6 +758,7 @@ int main( int argc, char **argv ) {
 						int ctfMessage = es->eventParm;
 						json_t *ctfevent = json_object();
 						json_object_set_new( ctfevent, "time", json_integer( getCurrentTime() ) );
+						json_object_set_new( ctfevent, "time_raw", json_integer( ctx->cl.snap.serverTime ) );
 						long millis = getCurrentTime();
 						long seconds = millis / 1000;
 						json_object_set_new( ctfevent, "human_time", json_string(
@@ -842,11 +893,12 @@ int main( int argc, char **argv ) {
 		previousTime = getCurrentTime();
 	}
 
-	finishClientInfo( &clientTeamsTrack, getCurrentTime() );
-	finishClientInfo( &clientNamesTrack, getCurrentTime() );
+	finishClientInfo( &clientTeamsTrack, getCurrentTime(), ctx->cl.snap.serverTime );
+	finishClientInfo( &clientNamesTrack, getCurrentTime(), ctx->cl.snap.serverTime );
 
 	if ( map != NULL ) {
 		json_object_set_new( map, "map_end_time", json_integer( getCurrentTime() ) );
+		json_object_set_new( map, "map_end_time_raw", json_integer( ctx->cl.snap.serverTime ) );
 		json_decref( map );
 		map = NULL;
 	}
@@ -896,7 +948,7 @@ int main( int argc, char **argv ) {
 				if ( offset != 0 && *modelName ) {
 					char modelName2[MAX_QPATH];
 					Q_strncpyz(modelName2, modelName, sizeof(modelName2));
-					mplace = va("mplacefx %s %d", modelName2, max(50, es->userInt2));
+					mplace = va("mplacefx %s %d", modelName2, Q_max(50, es->userInt2));
 					mpain = "mpain 10 10";
 				}
 			}

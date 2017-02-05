@@ -1,7 +1,8 @@
 #include <cwchar>   // wchar_t wide characters
-#include <Windows.h>
 #include "client/client.h"
 #include "demo_common.h"
+#if (defined _MSC_VER)
+#include <Windows.h>
 
 // Convert a wide Unicode string to an UTF8 string
 static const char *utf8_encode( const wchar_t *wstr, int wstrSize )
@@ -29,6 +30,62 @@ const char *cp1252toUTF8( const char *cp1252 )
 	free( strTo );
 	return result;
 }
+#else
+#include <locale.h>
+
+// Convert a wide Unicode string to an UTF8 string
+static const char *utf8_encode( const wchar_t *wstr, int wstrSize )
+{
+	setlocale( LC_CTYPE, "en_US.UTF-8" );
+	mbstate_t ps;
+	memset( &ps, 0, sizeof( ps ) );
+	size_t size_needed = wcsrtombs( NULL, &wstr, 0, &ps );
+	if ( size_needed == (size_t) -1 ) {
+		printf( "failure at: %S\n", wstr );
+		perror( "utf8 conversion failed" );
+		return NULL;
+	}
+	char *strTo = (char *) malloc( size_needed + 1 );
+	memset( &ps, 0, sizeof( ps ) );
+	wcsrtombs( strTo, &wstr, size_needed, &ps );
+	strTo[size_needed] = '\0';
+	return strTo;
+}
+
+const wchar_t *utf8BytesToString( const char *utf8 ) {
+	setlocale( LC_CTYPE, "en_US.UTF-8" );
+	mbstate_t ps;
+	memset( &ps, 0, sizeof( ps ) );
+	size_t size_needed = mbsrtowcs( NULL, &utf8, 0, &ps );
+	if ( size_needed == (size_t) -1 ) {
+		perror( "utf8 conversion failed" );
+		return NULL;
+	}
+	wchar_t *strTo = (wchar_t *) malloc( size_needed * sizeof( wchar_t ) );
+	mbsrtowcs( strTo, &utf8, size_needed, &ps );
+	return strTo;
+}
+
+const char *cp1252toUTF8( const char *cp1252 )
+{
+	setlocale( LC_CTYPE, "en_US.CP1252" );
+	mbstate_t ps;
+	memset( &ps, 0, sizeof( ps ) );
+	size_t size_needed = mbsrtowcs( NULL, &cp1252, 0, &ps );
+	if ( size_needed == (size_t) -1 ) {
+		printf( "failure at: %s\n", cp1252 );
+		perror( "cp1252 conversion failed" );
+		return NULL;
+	}
+	wchar_t *strTo = (wchar_t *) malloc( (size_needed + 1) * sizeof( wchar_t ) );
+	memset( &ps, 0, sizeof( ps ) );
+	mbsrtowcs( strTo, &cp1252, size_needed, &ps );
+	strTo[size_needed] = '\0';
+	const char *result = utf8_encode( strTo, size_needed );
+	free( strTo );
+	return result;
+}
+#endif
 
 const char *getPlayerName( int playerIdx ) {
 	if ( playerIdx > MAX_CLIENTS ) {
@@ -55,6 +112,26 @@ int playerSkill( int playerIdx ) {
 	} else {
 		return -1;
 	}
+}
+
+#if (defined _MSC_VER)
+#define strtoull _strtoui64
+#endif
+
+uint64_t getUniqueId( int playerIdx ) {
+	if ( playerIdx > MAX_CLIENTS ) {
+		return 0;
+	}
+	const char *result = Info_ValueForKey( ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ CS_PLAYERS + playerIdx ], "id" );
+	if ( result && *result ) {
+		char *p = NULL;
+		uint64_t uniqueId = strtoull( result, &p, 10 );
+		if ( errno == ERANGE || *p != 0 || p == result ) {
+			return 0;
+		}
+		return uniqueId;
+	}
+	return 0;
 }
 
 const char *CG_TeamName(team_t team)

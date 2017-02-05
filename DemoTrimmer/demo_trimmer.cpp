@@ -110,7 +110,7 @@ int main(int argc, char** argv)
 			fwrite (&len, 4, 1, metaFile);
 			break;
 		} else if ( framesSaved > 0 ) {
-			if ( framesSaved > max( 10, ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum ) ) {
+			if ( framesSaved > Q_max( 10, ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum ) ) {
 				CL_WriteDemoMessage( &msg, 0, metaFile );
 			} else {
 				writeDeltaSnapshot( firstServerCommand, metaFile, qfalse );
