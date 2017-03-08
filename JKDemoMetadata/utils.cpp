@@ -14,13 +14,17 @@ static const char *utf8_encode( const wchar_t *wstr, int wstrSize )
 	return strTo;
 }
 
+wchar_t wtmpBuf[MAX_STRING_CHARS];
 const wchar_t *utf8BytesToString( const char *utf8 ) {
 	int size_needed = MultiByteToWideChar( CP_UTF8, 0, utf8, -1, 0, 0 );
 	wchar_t *strTo = (wchar_t *) malloc( size_needed * sizeof( wchar_t ) );
 	MultiByteToWideChar( CP_UTF8, 0, utf8, -1, strTo, size_needed );
-	return strTo;
+	Q_strncpyz( (char *) wtmpBuf, (char *) strTo, sizeof( wtmpBuf ) * sizeof( *wtmpBuf ) );
+	free( strTo );
+	return wtmpBuf;
 }
 
+char tmpBuf[MAX_STRING_CHARS];
 const char *cp1252toUTF8( const char *cp1252 )
 {
 	int size_needed = MultiByteToWideChar( CP_ACP, 0, cp1252, -1, 0, 0 );
@@ -28,7 +32,9 @@ const char *cp1252toUTF8( const char *cp1252 )
 	MultiByteToWideChar( CP_ACP, 0, cp1252, -1, strTo, size_needed );
 	const char *result = utf8_encode( strTo, size_needed );
 	free( strTo );
-	return result;
+	Q_strncpyz( tmpBuf, result, sizeof( tmpBuf ) );
+	free( ( void *) result );
+	return tmpBuf;
 }
 #else
 #include <locale.h>
