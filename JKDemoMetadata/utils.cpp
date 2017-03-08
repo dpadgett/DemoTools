@@ -58,6 +58,7 @@ static const char *utf8_encode( const wchar_t *wstr, int wstrSize )
 	return strTo;
 }
 
+wchar_t wtmpBuf[MAX_STRING_CHARS];
 const wchar_t *utf8BytesToString( const char *utf8 ) {
 	setlocale( LC_CTYPE, "en_US.UTF-8" );
 	mbstate_t ps;
@@ -69,9 +70,12 @@ const wchar_t *utf8BytesToString( const char *utf8 ) {
 	}
 	wchar_t *strTo = (wchar_t *) malloc( size_needed * sizeof( wchar_t ) );
 	mbsrtowcs( strTo, &utf8, size_needed, &ps );
-	return strTo;
+	Q_strncpyz( (char *) wtmpBuf, (char *) strTo, sizeof( wtmpBuf ) * sizeof( *wtmpBuf ) );
+	free( strTo );
+	return wtmpBuf;
 }
 
+char tmpBuf[MAX_STRING_CHARS];
 const char *cp1252toUTF8( const char *cp1252 )
 {
 	setlocale( LC_CTYPE, "en_US.CP1252" );
@@ -89,7 +93,9 @@ const char *cp1252toUTF8( const char *cp1252 )
 	strTo[size_needed] = '\0';
 	const char *result = utf8_encode( strTo, size_needed );
 	free( strTo );
-	return result;
+	Q_strncpyz( tmpBuf, result, sizeof( tmpBuf ) );
+	free( ( void *) result );
+	return tmpBuf;
 }
 #endif
 
