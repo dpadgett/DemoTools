@@ -47,7 +47,7 @@ static const char *utf8_encode( const wchar_t *wstr, int wstrSize )
 	memset( &ps, 0, sizeof( ps ) );
 	size_t size_needed = wcsrtombs( NULL, &wstr, 0, &ps );
 	if ( size_needed == (size_t) -1 ) {
-		printf( "failure at: %S\n", wstr );
+		fprintf( stderr, "failure at: %S\n", wstr );
 		perror( "utf8 conversion failed" );
 		return NULL;
 	}
@@ -83,9 +83,10 @@ const char *cp1252toUTF8( const char *cp1252 )
 	memset( &ps, 0, sizeof( ps ) );
 	size_t size_needed = mbsrtowcs( NULL, &cp1252, 0, &ps );
 	if ( size_needed == (size_t) -1 ) {
-		printf( "failure at: %s\n", cp1252 );
+		fprintf( stderr, "failure at: %s\n", cp1252 );
 		perror( "cp1252 conversion failed" );
-		return NULL;
+		//return NULL;
+		return strdup( cp1252 );
 	}
 	wchar_t *strTo = (wchar_t *) malloc( (size_needed + 1) * sizeof( wchar_t ) );
 	memset( &ps, 0, sizeof( ps ) );
