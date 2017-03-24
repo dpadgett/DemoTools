@@ -86,7 +86,16 @@ const char *cp1252toUTF8( const char *cp1252 )
 		fprintf( stderr, "failure at: %s\n", cp1252 );
 		perror( "cp1252 conversion failed" );
 		//return NULL;
-		return strdup( cp1252 );
+		char *ret = strdup( cp1252 ), *out = ret;
+		for ( const char *in = cp1252; *in; ) {
+			if (*in > 0) {
+				*out = *in;
+				out++;
+			}
+			in++;
+		}
+		*out = 0;
+		return ret;
 	}
 	wchar_t *strTo = (wchar_t *) malloc( (size_needed + 1) * sizeof( wchar_t ) );
 	memset( &ps, 0, sizeof( ps ) );
