@@ -3,6 +3,7 @@ Release/
 *.o
 /JKDemoMetadata/jkdemometadata
 /DemoChanger/demochanger
+/DemoMerger/demomerger
 *.dm_2[5-6]
 *.vcxproj.user
 *.vcxproj.filters
