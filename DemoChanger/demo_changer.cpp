@@ -502,7 +502,8 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 #ifdef WIN32
 		setmode(fileno(stdout), O_BINARY);
 #else
-		freopen( NULL, "wb", stdout );
+		//freopen( NULL, "wb", stdout );
+    // apparently this isn't necessary on linux :?
 #endif
 	} else {
 		outFile = fopen( outFilename, "wb" );

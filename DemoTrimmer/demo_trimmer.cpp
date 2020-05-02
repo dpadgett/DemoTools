@@ -59,7 +59,8 @@ int main(int argc, char** argv)
 #ifdef WIN32
 		setmode(fileno(stdout), O_BINARY);
 #else
-		freopen( NULL, "wb", stdout );
+		//freopen( NULL, "wb", stdout );
+    // apparently this isn't necessary on linux :?
 #endif
 	} else {
 		metaFile = fopen( outFilename, "wb" );
