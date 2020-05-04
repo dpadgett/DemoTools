@@ -246,6 +246,7 @@ int main( int argc, char **argv ) {
 	}
 
 	live_mode = (qboolean) (argc > 2 && !Q_stricmp("live", argv[2]));
+  qboolean progress_mode = (qboolean) (argc > 2 && !Q_stricmp("progress", argv[2]));
 
 	// set to qtrue to emit executable .cfg files to recreate the makermod entity state from the demo
 	qboolean parseMakerEnts = qfalse;
@@ -308,6 +309,7 @@ int main( int argc, char **argv ) {
 	qboolean finalScores = qfalse;
 
 	qboolean demoFinished = qfalse;
+  int lastReportTime = 0;
 	while ( !demoFinished && !( live_mode && finalScores ) ) {
 		msg_t msg;
 		byte msgData[ MAX_MSGLEN ];
@@ -326,7 +328,10 @@ int main( int argc, char **argv ) {
 		if ( !ctx->cl.newSnapshots ) {
 			continue;
 		}
-		//Com_Printf( "read snapshot at time %d\n", cl.snap.serverTime );
+    if ( progress_mode && ctx->cl.snap.serverTime > lastReportTime + 10000 ) {
+      Com_Printf( "read snapshot at time %d\n", ctx->cl.snap.serverTime );
+      lastReportTime = ctx->cl.snap.serverTime;
+    }
 		/*if (cl.snap.serverTime == 1626964134) {
 			printf("at bad time");
 		}*/
