@@ -20,6 +20,7 @@ qboolean playerActive( int playerIdx );
 team_t getPlayerTeam( int playerIdx );
 gametype_t getGameType();
 uint64_t getUniqueId( int playerIdx );
+const char *getNewmodId( int playerIdx );
 
 clSnapshot_t *previousSnap();
 

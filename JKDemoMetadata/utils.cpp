@@ -156,6 +156,17 @@ uint64_t getUniqueId( int playerIdx ) {
 	return 0;
 }
 
+const char* getNewmodId( int playerIdx ) {
+	if ( playerIdx > MAX_CLIENTS ) {
+		return 0;
+	}
+	const char *result = Info_ValueForKey( ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ CS_PLAYERS + playerIdx ], "cid" );
+	if ( result && *result ) {
+		return result;
+	}
+	return 0;
+}
+
 const char *CG_TeamName(team_t team)
 {
 	if (team==TEAM_RED)

@@ -15,7 +15,8 @@ extern void system( char * );
 // if any code changes are made, bump this number to track which demos are updated / not updated
 // small version history:
 // version 4: added "raw" times which are not affected by game pauses.
-const int kSchemaVersion = 4;
+// version 5: added newmod client id
+const int kSchemaVersion = 5;
 
 typedef struct info_s {
 	long startTime;
@@ -27,6 +28,11 @@ typedef struct teamInfo_s {
 	team_t team;
 	info_t info;
 } teamInfo_t;
+
+typedef struct newmodInfo_s {
+	char newmodId[MAX_STRING_CHARS];
+	info_t info;
+} newmodInfo_t;
 
 typedef struct nameInfo_s {
 	char name[MAX_STRING_CHARS];
@@ -114,6 +120,33 @@ void makeTeamValueNode( void *allInfo ) {
 	json_object_set_new( ti->info.current, "team", json_string( CG_TeamName( ti->team ) ) );
 }
 
+static info_t *getInfoFromNewmodInfo( void *newmodInfo ) {
+	return &( (newmodInfo_t *) newmodInfo )->info;
+}
+
+qboolean updateNewmod( void *allInfo, int clientIdx ) {
+	newmodInfo_t *ni = (newmodInfo_t *)allInfo;
+	const char *newNewmodId = getNewmodId( clientIdx );
+	if ( ( newNewmodId != NULL && Q_strncmp( newNewmodId, ni->newmodId, sizeof( ni->newmodId ) ) ) ||
+         ( newNewmodId == NULL && *ni->newmodId ) ||
+          !playerActive( clientIdx ) ) {
+    if ( newNewmodId != NULL ) {
+      Q_strncpyz( ni->newmodId, newNewmodId, sizeof( ni->newmodId ) );
+    } else {
+      *ni->newmodId = 0;
+    }
+		return qtrue;
+	}
+	return qfalse;
+}
+
+void makeNewmodValueNode( void *allInfo ) {
+	newmodInfo_t *ni = (newmodInfo_t *)allInfo;
+  if ( *ni->newmodId ) {
+    json_object_set_new( ni->info.current, "newmod_id", json_string( ni->newmodId ) );
+  }
+}
+
 static info_t *getInfoFromNameInfo( void *nameInfo ) {
 	return &( (nameInfo_t *) nameInfo )->info;
 }
@@ -123,7 +156,12 @@ qboolean updateName( void *allInfo, int clientIdx ) {
 	const char *newName = getPlayerNameUTF8( clientIdx );
 	int newIsBot = playerSkill( clientIdx ) == -1 ? 0 : 1;
 	int64_t newUniqueId = getUniqueId( clientIdx );
-	if ( ni->info.current == NULL || ( ni->info.current != NULL && ( Q_strncmp( newName, ni->name, sizeof( ni->name ) ) || ni->isBot != newIsBot || newUniqueId != ni->uniqueId || !playerActive( clientIdx ) ) ) ) {
+	if ( ni->info.current == NULL ||
+      ( ni->info.current != NULL && (
+        Q_strncmp( newName, ni->name, sizeof( ni->name ) ) ||
+        ni->isBot != newIsBot ||
+        newUniqueId != ni->uniqueId ||
+        !playerActive( clientIdx ) ) ) ) {
 		Q_strncpyz( ni->name, newName, sizeof( ni->name ) );
 		ni->uniqueId = newUniqueId;
 		ni->isBot = newIsBot;
@@ -261,6 +299,18 @@ int main( int argc, char **argv ) {
 	qboolean clientIdInitialized = qfalse;
 	json_object_set_new( client, "id", json_integer( -1 ) );
 
+	newmodInfo_t clientNewmodInfo[MAX_CLIENTS];
+	memset( clientNewmodInfo, 0, sizeof( clientNewmodInfo ) );
+
+	clientInfoTrack_t clientNewmodTrack;
+	clientNewmodTrack.allInfos = &clientNewmodInfo;
+	clientNewmodTrack.infoSize = sizeof( *clientNewmodInfo );
+	clientNewmodTrack.keyPrefix = "newmod";
+	clientNewmodTrack.rootNode = NULL;
+	clientNewmodTrack.changed = updateNewmod;
+	clientNewmodTrack.getInfo = getInfoFromNewmodInfo;
+	clientNewmodTrack.makeValueNode = makeNewmodValueNode;
+
 	nameInfo_t clientNames[MAX_CLIENTS];
 	memset( clientNames, 0, sizeof( clientNames ) );
 
@@ -361,6 +411,7 @@ int main( int argc, char **argv ) {
 		if ( (ctx->cl.snap.snapFlags ^ previousSnapshot.snapFlags) & SNAPFLAG_SERVERCOUNT || map == NULL || trashCurrentMap ) {
 			finishClientInfo( &clientTeamsTrack, previousTime, previousSnapshot.serverTime );
 			finishClientInfo( &clientNamesTrack, previousTime, previousSnapshot.serverTime );
+			finishClientInfo( &clientNewmodTrack, previousTime, previousSnapshot.serverTime );
 
 			if ( map != NULL ) {
 				json_object_set_new( map, "map_end_time", json_integer( previousTime ) );
@@ -407,6 +458,8 @@ int main( int argc, char **argv ) {
 			json_object_set( map, "names", clientNamesTrack.rootNode );
 			clientTeamsTrack.rootNode = json_object();
 			json_object_set( map, "teams", clientTeamsTrack.rootNode );
+			clientNewmodTrack.rootNode = json_object();
+			json_object_set( map, "newmod", clientNewmodTrack.rootNode );
 			if ( frags != NULL ) {
 				json_decref( frags );
 			}
@@ -548,6 +601,7 @@ int main( int argc, char **argv ) {
 			}*/
 			//Com_Printf( "Received server command %d: %s\n", clc.lastExecutedServerCommand, command );
 		}
+		updateClientInfo( &clientNewmodTrack );
 		updateClientInfo( &clientNamesTrack );
 		updateClientInfo( &clientTeamsTrack );
 		if ( !mapStartTimeInitialized ) {
@@ -900,6 +954,7 @@ int main( int argc, char **argv ) {
 
 	finishClientInfo( &clientTeamsTrack, getCurrentTime(), ctx->cl.snap.serverTime );
 	finishClientInfo( &clientNamesTrack, getCurrentTime(), ctx->cl.snap.serverTime );
+	finishClientInfo( &clientNewmodTrack, getCurrentTime(), ctx->cl.snap.serverTime );
 
 	if ( map != NULL ) {
 		json_object_set_new( map, "map_end_time", json_integer( getCurrentTime() ) );
