@@ -444,7 +444,7 @@ int main( int argc, char **argv ) {
 			previousServerId = ctx->cl.serverId;
 			map = json_object();
 			const char *info = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ CS_SERVERINFO ];
-			json_object_set_new( map, "mapname", json_string( Info_ValueForKey( info, "mapname" ) ) );
+			json_object_set_new( map, "mapname", json_string( cp1252toUTF8( Info_ValueForKey( info, "mapname" ) ) ) );
 			mapStartTimeInitialized = qfalse;
 			json_object_set_new( map, "map_start_time", json_integer( -1 ) );
 			json_object_set_new( map, "map_end_time", json_integer( -1 ) );
