@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
       <Configuration>Debug</Configuration>
@@ -14,20 +14,21 @@
     <ProjectGuid>{C5E50C4D-5239-45F2-A0C7-F7062A82859A}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>DemoTrimmer</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -56,7 +57,7 @@
       </PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>
       </PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\JKDemoMetadata;E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp;E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\JKDemoMetadata;I:\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp;I:\PortableGit-1.7.6-preview20110709\openjk\OpenJK\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -72,7 +73,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\JKDemoMetadata;E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp;E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\dan\Documents\Visual Studio 2010\Projects\JKDemoMetadata\JKDemoMetadata;I:\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp;I:\PortableGit-1.7.6-preview20110709\openjk\OpenJK\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -91,10 +92,10 @@
     <ClCompile Include="..\JKDemoMetadata\utils.cpp" />
     <ClCompile Include="demo_trimmer.cpp" />
     <ClCompile Include="demo_utils.cpp" />
-    <ClCompile Include="E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\huffman.cpp" />
-    <ClCompile Include="E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\msg.cpp" />
-    <ClCompile Include="E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\q_math.cpp" />
-    <ClCompile Include="E:\Users\dan\Downloads\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\q_shared.cpp" />
+    <ClCompile Include="I:\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\huffman.cpp" />
+    <ClCompile Include="I:\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\msg.cpp" />
+    <ClCompile Include="I:\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\q_math.cpp" />
+    <ClCompile Include="I:\PortableGit-1.7.6-preview20110709\openjk\OpenJK\codemp\qcommon\q_shared.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\JKDemoMetadata\demo_common.h" />

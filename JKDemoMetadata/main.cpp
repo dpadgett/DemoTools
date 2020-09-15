@@ -16,7 +16,8 @@ extern void system( char * );
 // small version history:
 // version 4: added "raw" times which are not affected by game pauses.
 // version 5: added newmod client id
-const int kSchemaVersion = 5;
+// version 6: added bookmarks
+const int kSchemaVersion = 6;
 
 typedef struct info_s {
 	long startTime;
@@ -284,7 +285,7 @@ int main( int argc, char **argv ) {
 	}
 
 	live_mode = (qboolean) (argc > 2 && !Q_stricmp("live", argv[2]));
-  qboolean progress_mode = (qboolean) (argc > 2 && !Q_stricmp("progress", argv[2]));
+	qboolean progress_mode = (qboolean) (argc > 2 && !Q_stricmp("progress", argv[2]));
 
 	// set to qtrue to emit executable .cfg files to recreate the makermod entity state from the demo
 	qboolean parseMakerEnts = qfalse;
@@ -343,6 +344,7 @@ int main( int argc, char **argv ) {
 	qboolean mapStartTimeInitialized = qfalse;
 	json_t *frags = NULL;
 	json_t *ownfrags = NULL;
+	json_t *bookmarks = NULL;
 	json_t *ctfevents = NULL;
 	json_t *scoreRoot = NULL;
 
@@ -359,7 +361,7 @@ int main( int argc, char **argv ) {
 	qboolean finalScores = qfalse;
 
 	qboolean demoFinished = qfalse;
-  int lastReportTime = 0;
+	int lastReportTime = 0;
 	while ( !demoFinished && !( live_mode && finalScores ) ) {
 		msg_t msg;
 		byte msgData[ MAX_MSGLEN ];
@@ -470,6 +472,11 @@ int main( int argc, char **argv ) {
 			}
 			ownfrags = json_array();
 			json_object_set( map, "ownfrags", ownfrags );
+			if ( bookmarks != NULL ) {
+				json_decref( bookmarks );
+			}
+			bookmarks = json_array();
+			json_object_set( map, "bookmarks", bookmarks );
 			if ( ctfevents != NULL ) {
 				json_decref( ctfevents );
 			}
@@ -599,7 +606,27 @@ int main( int argc, char **argv ) {
 			}/* else if ( !strcmp( cmd, "cp" ) ) {
 				printf( "received centerprint\n" );
 			}*/
-			//Com_Printf( "Received server command %d: %s\n", clc.lastExecutedServerCommand, command );
+			else if ( !strcmp( cmd, "print" ) && Cmd_Argc() == 2 ) {
+				const char *text = Cmd_Argv( 1 );
+				const char *match = "unknown cmd ";
+				int offset = sizeof( "unknown cmd " ) - 1;
+				if ( !Q_stricmpn( text, "unknown cmd ", offset ) && text[strlen(text)-1] == '\n' ) {
+					char bookmark[MAX_STRING_CHARS];
+					Q_strncpyz( bookmark, &text[offset], MAX_STRING_CHARS );
+					bookmark[strlen( bookmark ) - 1] = '\0';
+					// Com_Printf( "Found bookmark: %s at time %d\n", bookmark, getCurrentTime() );
+					json_t *bm = json_object();
+					json_object_set_new( bm, "time", json_integer( getCurrentTime() ) );
+					json_object_set_new( bm, "time_raw", json_integer( ctx->cl.snap.serverTime ) );
+					long millis = getCurrentTime();
+					long seconds = millis / 1000;
+					json_object_set_new( bm, "human_time", json_string(
+						va( "%02d:%02d:%02d.%03d", seconds / 60 / 60, ( seconds / 60 ) % 60, seconds % 60, millis % 1000 ) ) );
+					json_object_set_new( bm, "mark", json_string( bookmark ) );
+					json_array_append( bookmarks, bm );
+				}
+			}
+			//Com_Printf( "Received server command %d: %s\n", ctx->clc.lastExecutedServerCommand, command );
 		}
 		updateClientInfo( &clientNewmodTrack );
 		updateClientInfo( &clientNamesTrack );
