@@ -390,6 +390,7 @@ int main( int argc, char **argv ) {
 		// jump ahead to resolve a new serverId as we need to know if it changed before doing anything
 		const char *systemInfo = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ CS_SYSTEMINFO ];
 		int start = Q_max( ctx->clc.lastExecutedServerCommand, ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 1 );
+		ctx->clc.lastExecutedServerCommand = start;
 		for (int cmdIdx = start; cmdIdx <= ctx->clc.serverCommandSequence; cmdIdx++ ) {
 			char *command = ctx->clc.serverCommands[ cmdIdx & ( MAX_RELIABLE_COMMANDS - 1 ) ];
 			Cmd_TokenizeString( command );
