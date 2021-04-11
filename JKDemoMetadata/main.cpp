@@ -634,6 +634,7 @@ int main( int argc, char **argv ) {
 				if ( ( !Q_stricmpn( text, "^1RED: ^7", offset ) || !Q_stricmpn( text, "^4BLUE: ^7", offset+1 )  ) && text[strlen( text ) - 1] == '\n' ) {
 					// ctf stats started printing, it should be sent in an uninterrupted sequence of prints
 					json_t* jctfstats = json_object();
+					json_t* playerStats[MAX_CLIENTS] = {};
 					char ctfstats[MAX_STRING_CHARS * 10] = "";
 					Q_strcat( ctfstats, sizeof( ctfstats ), text );
 					int numLinebreaks = 0;
@@ -706,9 +707,10 @@ int main( int argc, char **argv ) {
 							char stats[MAX_STRING_CHARS];
 							Q_strncpyz( stats, text, sizeof( stats ) );
 							Q_StripColor( stats );
-							json_t* jstats = json_object_get( jctfstats, va( "%d", clientIdx ) );
+							json_t* jstats = playerStats[clientIdx];
 							if ( jstats == NULL ) {
 								jstats = json_object();
+								playerStats[clientIdx] = jstats;
 								json_object_set_new( jctfstats, va( "%d", clientIdx ), jstats );
 							}
 							while ( statsIdx < strlen( text ) ) {
@@ -735,7 +737,20 @@ int main( int argc, char **argv ) {
 						}
 					}
 					Com_Printf( "Found ctfstats: %s at time %d\n", ctfstats, getCurrentTime() );
-					json_object_set_new( map, "ctfstats", jctfstats );
+					// json_object_set_new( map, "ctfstats", jctfstats );
+					// i decided embedding the stats into scoreboard makes more sense
+					json_t* scoreLists[] = { json_object_get( scoreRoot, "freeplayers" ), json_object_get( scoreRoot, "redplayers" ), json_object_get( scoreRoot, "blueplayers" ), json_object_get( scoreRoot, "specplayers" ) };
+					for ( int scoreListIdx = 0; scoreListIdx < ARRAY_LEN( scoreLists ); scoreListIdx++ ) {
+						json_t* scoreList = scoreLists[scoreListIdx];
+						if ( scoreList == NULL ) { continue;  }
+						for ( int scoreIdx = 0; scoreIdx < json_array_size( scoreList ); scoreIdx++ ) {
+							json_t* score = json_array_get( scoreList, scoreIdx );
+							json_t* scoreClient = json_object_get( score, "client" );
+							if ( scoreClient != NULL && json_integer_value( scoreClient ) < MAX_CLIENTS && playerStats[json_integer_value( scoreClient )] != NULL ) {
+								json_object_set( score, "ctfstats", playerStats[json_integer_value( scoreClient )] );
+							}
+						}
+					}
 				}
 			}
 			//Com_Printf( "Received server command %d: %s\n", ctx->clc.lastExecutedServerCommand, command );
