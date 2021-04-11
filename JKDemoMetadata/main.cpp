@@ -17,7 +17,8 @@ extern void system( char * );
 // version 4: added "raw" times which are not affected by game pauses.
 // version 5: added newmod client id
 // version 6: added bookmarks
-const int kSchemaVersion = 6;
+// version 7: added extraction of server ctfstats
+const int kSchemaVersion = 7;
 
 typedef struct info_s {
 	long startTime;
@@ -625,6 +626,116 @@ int main( int argc, char **argv ) {
 						va( "%02d:%02d:%02d.%03d", seconds / 60 / 60, ( seconds / 60 ) % 60, seconds % 60, millis % 1000 ) ) );
 					json_object_set_new( bm, "mark", json_string( bookmark ) );
 					json_array_append( bookmarks, bm );
+				}
+			}
+			if ( !strcmp( cmd, "print" ) && Cmd_Argc() == 2 ) {
+				const char* text = Cmd_Argv( 1 );
+				int offset = sizeof( "^1RED: ^7" ) - 1;
+				if ( ( !Q_stricmpn( text, "^1RED: ^7", offset ) || !Q_stricmpn( text, "^4BLUE: ^7", offset+1 )  ) && text[strlen( text ) - 1] == '\n' ) {
+					// ctf stats started printing, it should be sent in an uninterrupted sequence of prints
+					json_t* jctfstats = json_object();
+					char ctfstats[MAX_STRING_CHARS * 10] = "";
+					Q_strcat( ctfstats, sizeof( ctfstats ), text );
+					int numLinebreaks = 0;
+					char header[MAX_STRING_CHARS] = "";
+					char divider[MAX_STRING_CHARS] = "";
+					int nameColLen = 0;
+					for ( ctx->clc.lastExecutedServerCommand++; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
+						char* command = ctx->clc.serverCommands[ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
+						Cmd_TokenizeString( command );
+						char* cmd = Cmd_Argv( 0 );
+						if ( strcmp( cmd, "print" ) ) {
+							// end of prints, back up one to process this cmd and continue
+							ctx->clc.lastExecutedServerCommand--;
+							break;
+						}
+						text = Cmd_Argv( 1 );
+						Q_strcat( ctfstats, sizeof( ctfstats ), text );
+						if ( !strcmp( text, "\n" ) ) {
+							numLinebreaks++;
+							header[0] = '\0';
+							if ( numLinebreaks > 1 ) {
+								// there should be 2 empty lines and then printing is done
+								break;
+							}
+							continue;
+						}
+						// top section
+						if ( header[0] == '\0' ) {
+							// parse header
+							Q_strncpyz( header, text, sizeof( header ) );
+							header[strlen( text ) / 2] = '\0';
+							Q_strncpyz( divider, &text[strlen( text ) / 2], sizeof( divider ) );
+							char *nameColEnd = strchr( divider, ' ' );
+							*nameColEnd = 0;
+							nameColLen = Q_PrintStrlen( divider );
+							*nameColEnd = ' ';
+						}
+						else if ( !strcmp( text + 2, divider + 2 ) ) {
+							// divider row
+						}
+						else {
+							// player row, try to find which player it is based on their name
+							char name[MAX_STRING_CHARS];
+							Q_strncpyz( name, text, sizeof( name ) );
+							name[MAX_NAME_LENGTH] = 0;
+							int nameEnd = 0;
+							while ( *name && ( Q_PrintStrlen( name ) > nameColLen || name[strlen( name ) - 1] == ' ' ) ) {
+								name[strlen( name ) - 1] = 0;
+								if ( nameEnd == 0 &&  Q_PrintStrlen( name ) <= nameColLen ) {
+									nameEnd = strlen( name ) + 1;
+								}
+							}
+							int clientIdx = 0;
+							for ( ; clientIdx < MAX_CLIENTS; clientIdx++ ) {
+								if ( playerActive( clientIdx ) ) {
+									const char* playerName = getPlayerName( clientIdx );
+									if ( !strncmp( playerName, name, strlen( name ) ) &&
+										(strlen(playerName) <= strlen(name) || !strncmp( playerName + strlen(name), "                                            ", strlen(playerName) - strlen(name) ) ) ) {
+										// likely match
+										break;
+									}
+								}
+							}
+							if ( clientIdx == MAX_CLIENTS ) {
+								Com_Printf( "Couldn't identify: %s\n", name );
+								continue;
+							}
+							Com_Printf( "Found name: %s client: %d\n", name, clientIdx );
+							int statsIdx = nameColLen + 1;
+							char stats[MAX_STRING_CHARS];
+							Q_strncpyz( stats, text, sizeof( stats ) );
+							Q_StripColor( stats );
+							json_t* jstats = json_object_get( jctfstats, va( "%d", clientIdx ) );
+							if ( jstats == NULL ) {
+								jstats = json_object();
+								json_object_set_new( jctfstats, va( "%d", clientIdx ), jstats );
+							}
+							while ( statsIdx < strlen( text ) ) {
+								const char* colEnd = Q_strchrs( &divider[statsIdx + 2], " \n" );
+								if ( colEnd == NULL ) {
+									break;
+								}
+								int colLen = colEnd - &divider[statsIdx + 2];
+								if ( colLen == 0 ) { break; }
+								char key[MAX_STRING_CHARS];
+								Q_strncpyz( key, &header[statsIdx + 2], colLen + 1 );
+								Q_strlwr( key );
+								char value[MAX_STRING_CHARS];
+								int skipLen = 0;
+								for ( ; stats[statsIdx + skipLen] == ' '; skipLen++ ) {}
+								Q_strncpyz( value, &stats[statsIdx + skipLen], colLen + 1 - skipLen );
+								for ( ; value[strlen( value ) - 1] == ' '; value[strlen( value ) - 1] = '\0' ) {}
+								Com_Printf( "%s: %s\n", key, value );
+								statsIdx += colLen + 1;
+
+								json_object_set_new( jstats, key, json_string( value ) );
+							}
+							//Com_Printf( "Stats: %s\n", &text[nameEnd] );
+						}
+					}
+					Com_Printf( "Found ctfstats: %s at time %d\n", ctfstats, getCurrentTime() );
+					json_object_set_new( map, "ctfstats", jctfstats );
 				}
 			}
 			//Com_Printf( "Received server command %d: %s\n", ctx->clc.lastExecutedServerCommand, command );
