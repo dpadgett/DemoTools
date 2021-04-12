@@ -699,10 +699,10 @@ int main( int argc, char **argv ) {
 								}
 							}
 							if ( clientIdx == MAX_CLIENTS ) {
-								Com_Printf( "Couldn't identify: %s\n", name );
+								//Com_Printf( "Couldn't identify: %s\n", name );
 								continue;
 							}
-							Com_Printf( "Found name: %s client: %d\n", name, clientIdx );
+							//Com_Printf( "Found name: %s client: %d\n", name, clientIdx );
 							int statsIdx = nameColLen + 1;
 							char stats[MAX_STRING_CHARS];
 							Q_strncpyz( stats, text, sizeof( stats ) );
@@ -728,7 +728,7 @@ int main( int argc, char **argv ) {
 								for ( ; stats[statsIdx + skipLen] == ' '; skipLen++ ) {}
 								Q_strncpyz( value, &stats[statsIdx + skipLen], colLen + 1 - skipLen );
 								for ( ; value[strlen( value ) - 1] == ' '; value[strlen( value ) - 1] = '\0' ) {}
-								Com_Printf( "%s: %s\n", key, value );
+								//Com_Printf( "%s: %s\n", key, value );
 								statsIdx += colLen + 1;
 
 								json_object_set_new( jstats, key, json_string( value ) );
@@ -736,7 +736,7 @@ int main( int argc, char **argv ) {
 							//Com_Printf( "Stats: %s\n", &text[nameEnd] );
 						}
 					}
-					Com_Printf( "Found ctfstats: %s at time %d\n", ctfstats, getCurrentTime() );
+					//Com_Printf( "Found ctfstats: %s at time %d\n", ctfstats, getCurrentTime() );
 					// json_object_set_new( map, "ctfstats", jctfstats );
 					// i decided embedding the stats into scoreboard makes more sense
 					json_t* scoreLists[] = { json_object_get( scoreRoot, "freeplayers" ), json_object_get( scoreRoot, "redplayers" ), json_object_get( scoreRoot, "blueplayers" ), json_object_get( scoreRoot, "specplayers" ) };
