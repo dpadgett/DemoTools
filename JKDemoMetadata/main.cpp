@@ -731,7 +731,11 @@ int main( int argc, char **argv ) {
 								//Com_Printf( "%s: %s\n", key, value );
 								statsIdx += colLen + 1;
 
-								json_object_set_new( jstats, key, json_string( value ) );
+								if ( Q_isanumber( value ) && strchr( value, '.' ) == NULL) {
+									json_object_set_new( jstats, key, json_integer( atoi( value ) ) );
+								} else {
+									json_object_set_new( jstats, key, json_string( value ) );
+								}
 							}
 							//Com_Printf( "Stats: %s\n", &text[nameEnd] );
 						}
