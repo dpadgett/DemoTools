@@ -710,7 +710,6 @@ int main( int argc, char **argv ) {
 							}
 							Q_strncpyz( playerNames[rowIdx], name, sizeof( playerNames[rowIdx] ) );
 							json_object_set_new( jstats, "team", json_integer( curTeam ) );
-							json_dumpf( jstats, stdout, JSON_INDENT( 2 ) | JSON_PRESERVE_ORDER );
 							// parse the rest of the line first, so we can also match by score
 							int statsIdx = nameColLen + 1;
 							char stats[MAX_STRING_CHARS];
@@ -747,7 +746,6 @@ int main( int argc, char **argv ) {
 							else {
 								playerStats[rowIdx] = jstats;
 							}
-							json_dumpf( playerStats[rowIdx], stdout, JSON_INDENT( 2 ) | JSON_PRESERVE_ORDER );
 							rowIdx++;
 							
 							//Com_Printf( "Stats: %s\n", &text[nameEnd] );
@@ -778,7 +776,6 @@ int main( int argc, char **argv ) {
 									// wrong team
 									continue;
 								}
-								json_dumpf( stat, stdout, JSON_INDENT( 2 ) | JSON_PRESERVE_ORDER );
 								const char* name = playerNames[statsIdx];
 								// tricky logic to compare name, to factor in their real name potentially having trailing spaces
 								if ( !( !strncmp( scorePlayerName, name, strlen( name ) ) &&
