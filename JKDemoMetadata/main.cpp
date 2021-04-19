@@ -635,7 +635,8 @@ int main( int argc, char **argv ) {
 				if ( ( !Q_stricmpn( text, "^1RED: ^7", offset ) || !Q_stricmpn( text, "^4BLUE: ^7", offset+1 )  ) && text[strlen( text ) - 1] == '\n' ) {
 					// ctf stats started printing, it should be sent in an uninterrupted sequence of prints
 					json_t* playerStats[MAX_CLIENTS] = {};
-					int idxToClientIdx[MAX_CLIENTS] = {};
+					// non-utf8 strings can't be saved in json_t, so this needs to be separated
+					char playerNames[MAX_CLIENTS][MAX_NETNAME] = {};
 					char ctfstats[MAX_STRING_CHARS * 10] = "";
 					Q_strcat( ctfstats, sizeof( ctfstats ), text );
 					int numLinebreaks = 0;
@@ -645,6 +646,7 @@ int main( int argc, char **argv ) {
 					team_t firstTeam = !Q_stricmpn( text, "^1RED: ^7", offset ) ? TEAM_RED : TEAM_BLUE;
 					team_t curTeam = firstTeam;
 					int rowIdx = 0;
+					qboolean resetRowIdx = qtrue;
 					for ( ctx->clc.lastExecutedServerCommand++; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
 						char* command = ctx->clc.serverCommands[ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
 						Cmd_TokenizeString( command );
@@ -668,6 +670,13 @@ int main( int argc, char **argv ) {
 						// top section
 						if ( header[0] == '\0' ) {
 							// parse header
+							if ( Q_stricmpn( text, "^5NAME", strlen( "^5NAME" ) ) ) {
+								// unexpected header line
+								if ( !Q_stricmpn( text, "^1RED: ^7", offset ) ) { firstTeam = TEAM_RED; }
+								else if ( !Q_stricmpn( text, "^4BLUE: ^7", offset + 1 ) ) { firstTeam = TEAM_BLUE; }
+								resetRowIdx = qfalse;
+								continue;
+							}
 							Q_strncpyz( header, text, sizeof( header ) );
 							header[strlen( text ) / 2] = '\0';
 							Q_strncpyz( divider, &text[strlen( text ) / 2], sizeof( divider ) );
@@ -676,7 +685,7 @@ int main( int argc, char **argv ) {
 							nameColLen = Q_PrintStrlen( divider );
 							*nameColEnd = ' ';
 							curTeam = firstTeam;
-							rowIdx = 0;
+							if ( resetRowIdx ) { rowIdx = 0; }
 						}
 						else if ( !strcmp( text + 2, divider + 2 ) ) {
 							// divider row
@@ -687,6 +696,10 @@ int main( int argc, char **argv ) {
 							json_t* jstats = json_object();
 							char name[MAX_STRING_CHARS];
 							Q_strncpyz( name, text, sizeof( name ) );
+							if ( strlen( name ) + 2 < strlen( header ) ) {
+								// not a stats row?
+								continue;
+							}
 							name[MAX_NETNAME] = 0;
 							int nameEnd = 0;
 							while ( *name && ( Q_PrintStrlen( name ) > nameColLen || name[strlen( name ) - 1] == ' ' ) ) {
@@ -695,10 +708,10 @@ int main( int argc, char **argv ) {
 									nameEnd = strlen( name ) + 1;
 								}
 							}
-							json_object_set_new( jstats, "name", json_string( name ) );
+							Q_strncpyz( playerNames[rowIdx], name, sizeof( playerNames[rowIdx] ) );
 							json_object_set_new( jstats, "team", json_integer( curTeam ) );
+							json_dumpf( jstats, stdout, JSON_INDENT( 2 ) | JSON_PRESERVE_ORDER );
 							// parse the rest of the line first, so we can also match by score
-							int score = -999;
 							int statsIdx = nameColLen + 1;
 							char stats[MAX_STRING_CHARS];
 							Q_strncpyz( stats, text, sizeof( stats ) );
@@ -723,9 +736,6 @@ int main( int argc, char **argv ) {
 
 								if ( Q_isanumber( value ) && strchr( value, '.' ) == NULL) {
 									json_object_set_new( jstats, key, json_integer( atoi( value ) ) );
-									if ( !strcmp( key, "score" ) ) {
-										score = atoi( value );
-									}
 								} else {
 									json_object_set_new( jstats, key, json_string( value ) );
 								}
@@ -737,6 +747,7 @@ int main( int argc, char **argv ) {
 							else {
 								playerStats[rowIdx] = jstats;
 							}
+							json_dumpf( playerStats[rowIdx], stdout, JSON_INDENT( 2 ) | JSON_PRESERVE_ORDER );
 							rowIdx++;
 							
 							//Com_Printf( "Stats: %s\n", &text[nameEnd] );
@@ -767,7 +778,8 @@ int main( int argc, char **argv ) {
 									// wrong team
 									continue;
 								}
-								const char* name = json_string_value( json_object_get( stat, "name" ) );
+								json_dumpf( stat, stdout, JSON_INDENT( 2 ) | JSON_PRESERVE_ORDER );
+								const char* name = playerNames[statsIdx];
 								// tricky logic to compare name, to factor in their real name potentially having trailing spaces
 								if ( !( !strncmp( scorePlayerName, name, strlen( name ) ) &&
 									( strlen( scorePlayerName ) <= strlen( name ) || !strncmp( scorePlayerName + strlen( name ), "                                            ", strlen( scorePlayerName ) - strlen( name ) ) ) ) ) {
@@ -787,10 +799,9 @@ int main( int argc, char **argv ) {
 							}
 						}
 					}
-					// clear extra name and team
+					// clear extra team
 					for ( int statsIdx = 0; statsIdx < rowIdx; statsIdx++ ) {
 						json_t* stat = playerStats[statsIdx];
-						json_object_del( stat, "name" );
 						json_object_del( stat, "team" );
 					}
 				}
