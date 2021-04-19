@@ -18,7 +18,8 @@ extern void system( char * );
 // version 5: added newmod client id
 // version 6: added bookmarks
 // version 7: added extraction of server ctfstats
-const int kSchemaVersion = 7;
+// version 8: bugfix for ctfstats matching
+const int kSchemaVersion = 8;
 
 typedef struct info_s {
 	long startTime;
@@ -633,14 +634,17 @@ int main( int argc, char **argv ) {
 				int offset = sizeof( "^1RED: ^7" ) - 1;
 				if ( ( !Q_stricmpn( text, "^1RED: ^7", offset ) || !Q_stricmpn( text, "^4BLUE: ^7", offset+1 )  ) && text[strlen( text ) - 1] == '\n' ) {
 					// ctf stats started printing, it should be sent in an uninterrupted sequence of prints
-					json_t* jctfstats = json_object();
 					json_t* playerStats[MAX_CLIENTS] = {};
+					int idxToClientIdx[MAX_CLIENTS] = {};
 					char ctfstats[MAX_STRING_CHARS * 10] = "";
 					Q_strcat( ctfstats, sizeof( ctfstats ), text );
 					int numLinebreaks = 0;
 					char header[MAX_STRING_CHARS] = "";
 					char divider[MAX_STRING_CHARS] = "";
 					int nameColLen = 0;
+					team_t firstTeam = !Q_stricmpn( text, "^1RED: ^7", offset ) ? TEAM_RED : TEAM_BLUE;
+					team_t curTeam = firstTeam;
+					int rowIdx = 0;
 					for ( ctx->clc.lastExecutedServerCommand++; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
 						char* command = ctx->clc.serverCommands[ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
 						Cmd_TokenizeString( command );
@@ -671,15 +675,19 @@ int main( int argc, char **argv ) {
 							*nameColEnd = 0;
 							nameColLen = Q_PrintStrlen( divider );
 							*nameColEnd = ' ';
+							curTeam = firstTeam;
+							rowIdx = 0;
 						}
 						else if ( !strcmp( text + 2, divider + 2 ) ) {
 							// divider row
+							curTeam = OtherTeam( curTeam );
 						}
 						else {
 							// player row, try to find which player it is based on their name
+							json_t* jstats = json_object();
 							char name[MAX_STRING_CHARS];
 							Q_strncpyz( name, text, sizeof( name ) );
-							name[MAX_NAME_LENGTH] = 0;
+							name[MAX_NETNAME] = 0;
 							int nameEnd = 0;
 							while ( *name && ( Q_PrintStrlen( name ) > nameColLen || name[strlen( name ) - 1] == ' ' ) ) {
 								name[strlen( name ) - 1] = 0;
@@ -687,32 +695,14 @@ int main( int argc, char **argv ) {
 									nameEnd = strlen( name ) + 1;
 								}
 							}
-							int clientIdx = 0;
-							for ( ; clientIdx < MAX_CLIENTS; clientIdx++ ) {
-								if ( playerActive( clientIdx ) ) {
-									const char* playerName = getPlayerName( clientIdx );
-									if ( !strncmp( playerName, name, strlen( name ) ) &&
-										(strlen(playerName) <= strlen(name) || !strncmp( playerName + strlen(name), "                                            ", strlen(playerName) - strlen(name) ) ) ) {
-										// likely match
-										break;
-									}
-								}
-							}
-							if ( clientIdx == MAX_CLIENTS ) {
-								//Com_Printf( "Couldn't identify: %s\n", name );
-								continue;
-							}
-							//Com_Printf( "Found name: %s client: %d\n", name, clientIdx );
+							json_object_set_new( jstats, "name", json_string( name ) );
+							json_object_set_new( jstats, "team", json_integer( curTeam ) );
+							// parse the rest of the line first, so we can also match by score
+							int score = -999;
 							int statsIdx = nameColLen + 1;
 							char stats[MAX_STRING_CHARS];
 							Q_strncpyz( stats, text, sizeof( stats ) );
 							Q_StripColor( stats );
-							json_t* jstats = playerStats[clientIdx];
-							if ( jstats == NULL ) {
-								jstats = json_object();
-								playerStats[clientIdx] = jstats;
-								json_object_set_new( jctfstats, va( "%d", clientIdx ), jstats );
-							}
 							while ( statsIdx < strlen( text ) ) {
 								const char* colEnd = Q_strchrs( &divider[statsIdx + 2], " \n" );
 								if ( colEnd == NULL ) {
@@ -733,27 +723,75 @@ int main( int argc, char **argv ) {
 
 								if ( Q_isanumber( value ) && strchr( value, '.' ) == NULL) {
 									json_object_set_new( jstats, key, json_integer( atoi( value ) ) );
+									if ( !strcmp( key, "score" ) ) {
+										score = atoi( value );
+									}
 								} else {
 									json_object_set_new( jstats, key, json_string( value ) );
 								}
 							}
+							if ( playerStats[rowIdx] != NULL ) {
+								// merge new stats in
+								json_object_update_missing( playerStats[rowIdx], jstats );
+							}
+							else {
+								playerStats[rowIdx] = jstats;
+							}
+							rowIdx++;
+							
 							//Com_Printf( "Stats: %s\n", &text[nameEnd] );
 						}
 					}
 					//Com_Printf( "Found ctfstats: %s at time %d\n", ctfstats, getCurrentTime() );
 					// json_object_set_new( map, "ctfstats", jctfstats );
 					// i decided embedding the stats into scoreboard makes more sense
-					json_t* scoreLists[] = { json_object_get( scoreRoot, "freeplayers" ), json_object_get( scoreRoot, "redplayers" ), json_object_get( scoreRoot, "blueplayers" ), json_object_get( scoreRoot, "specplayers" ) };
+					json_t* scoreLists[] = { json_object_get( scoreRoot, "redplayers" ), json_object_get( scoreRoot, "blueplayers" ) };
 					for ( int scoreListIdx = 0; scoreListIdx < ARRAY_LEN( scoreLists ); scoreListIdx++ ) {
 						json_t* scoreList = scoreLists[scoreListIdx];
 						if ( scoreList == NULL ) { continue;  }
 						for ( int scoreIdx = 0; scoreIdx < json_array_size( scoreList ); scoreIdx++ ) {
 							json_t* score = json_array_get( scoreList, scoreIdx );
 							json_t* scoreClient = json_object_get( score, "client" );
-							if ( scoreClient != NULL && json_integer_value( scoreClient ) < MAX_CLIENTS && playerStats[json_integer_value( scoreClient )] != NULL ) {
-								json_object_set( score, "ctfstats", playerStats[json_integer_value( scoreClient )] );
+							if ( scoreClient == NULL ) { continue;  }
+							int scoreClientIdx = json_integer_value( scoreClient );
+							if ( !playerActive( scoreClientIdx ) ) {
+								continue;
+							}
+							team_t scoreTeam = !strcmp( json_string_value( json_object_get( score, "team" ) ), "RED" ) ? TEAM_RED : TEAM_BLUE;
+							if ( getPlayerTeam( scoreClientIdx ) != TEAM_RED && getPlayerTeam( scoreClientIdx ) != TEAM_BLUE ) { continue; }
+							const char* scorePlayerName = getPlayerName( scoreClientIdx );
+							for ( int statsIdx = 0; statsIdx < rowIdx; statsIdx++ ) {
+								json_t* stat = playerStats[statsIdx];
+								team_t statTeam = (team_t) json_integer_value( json_object_get( stat, "team" ) );
+								if ( statTeam != scoreTeam ) {
+									// wrong team
+									continue;
+								}
+								const char* name = json_string_value( json_object_get( stat, "name" ) );
+								// tricky logic to compare name, to factor in their real name potentially having trailing spaces
+								if ( !( !strncmp( scorePlayerName, name, strlen( name ) ) &&
+									( strlen( scorePlayerName ) <= strlen( name ) || !strncmp( scorePlayerName + strlen( name ), "                                            ", strlen( scorePlayerName ) - strlen( name ) ) ) ) ) {
+									// name mismatch
+									continue;
+								}
+								// name matched, check score
+								json_t* scoreVal = json_object_get( score, "score" );
+								int clientScore = json_integer_value( scoreVal );
+								int statScore = json_integer_value( json_object_get( stat, "score" ) );
+								if ( clientScore != statScore ) {
+									// score mismatch
+									continue;
+								}
+								// match!
+								json_object_set( score, "ctfstats", stat );
 							}
 						}
+					}
+					// clear extra name and team
+					for ( int statsIdx = 0; statsIdx < rowIdx; statsIdx++ ) {
+						json_t* stat = playerStats[statsIdx];
+						json_object_del( stat, "name" );
+						json_object_del( stat, "team" );
 					}
 				}
 			}
