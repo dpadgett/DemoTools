@@ -714,7 +714,7 @@ int main( int argc, char **argv ) {
 							int statsIdx = nameColLen + 1;
 							char stats[MAX_STRING_CHARS];
 							Q_strncpyz( stats, text, sizeof( stats ) );
-							Q_StripColor( stats );
+							Q_CleanStr( stats );
 							while ( statsIdx < strlen( text ) ) {
 								const char* colEnd = Q_strchrs( &divider[statsIdx + 2], " \n" );
 								if ( colEnd == NULL ) {
