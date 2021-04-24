@@ -500,6 +500,9 @@ int main( int argc, char **argv ) {
 			inIntermission = qtrue;
 		}
 
+		// need to track if we entered intermission on this snapshot, since we need to take the last scoreboard sent
+		// since multiple scoreboards could have been sent in a single snapshot
+		qboolean finalScoresThisSnap = qfalse;
 		// process any new server commands
 		for ( ; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
 			char *command = ctx->clc.serverCommands[ ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 ) ];
@@ -513,8 +516,9 @@ int main( int argc, char **argv ) {
 					Com_Printf("Skipping command %s since it fast forwards time %d to %d\n", command, getCurrentTime(), ctx->cl.snap.serverTime - atoi( Cmd_Argv( 2 ) ));
 				}
 			} else if ( !strcmp( cmd, "scores" ) ) {
-				if ( scoreRoot != NULL && finalScores == qfalse ) {
+				if ( scoreRoot != NULL && ( finalScores == qfalse || finalScoresThisSnap == qtrue ) ) {
 					finalScores = inIntermission;
+					finalScoresThisSnap = finalScores;
 					if ( finalScores ) {
 						json_object_set_new( scoreRoot, "is_final", json_integer( 1 ) );
 					}
@@ -679,7 +683,9 @@ int main( int argc, char **argv ) {
 							}
 							Q_strncpyz( header, text, sizeof( header ) );
 							header[strlen( text ) / 2] = '\0';
+							Q_CleanStr( header );
 							Q_strncpyz( divider, &text[strlen( text ) / 2], sizeof( divider ) );
+							Q_CleanStr( divider );
 							char *nameColEnd = strchr( divider, ' ' );
 							*nameColEnd = 0;
 							nameColLen = Q_PrintStrlen( divider );
@@ -687,7 +693,7 @@ int main( int argc, char **argv ) {
 							curTeam = firstTeam;
 							if ( resetRowIdx ) { rowIdx = 0; }
 						}
-						else if ( !strcmp( text + 2, divider + 2 ) ) {
+						else if ( !strncmp( text + 2, divider, strlen( divider ) ) ) {
 							// divider row
 							curTeam = OtherTeam( curTeam );
 						}
@@ -696,34 +702,36 @@ int main( int argc, char **argv ) {
 							json_t* jstats = json_object();
 							char name[MAX_STRING_CHARS];
 							Q_strncpyz( name, text, sizeof( name ) );
-							if ( strlen( name ) + 2 < strlen( header ) ) {
+							if ( strlen( name ) < strlen( header ) ) {
 								// not a stats row?
 								continue;
 							}
 							name[MAX_NETNAME] = 0;
-							int nameEnd = 0;
-							while ( *name && ( Q_PrintStrlen( name ) > nameColLen || name[strlen( name ) - 1] == ' ' ) ) {
-								name[strlen( name ) - 1] = 0;
-								if ( nameEnd == 0 &&  Q_PrintStrlen( name ) <= nameColLen ) {
-									nameEnd = strlen( name ) + 1;
+							int remainingLen = strlen( divider ) - nameColLen;
+							while ( *name && ( Q_PrintStrlen( &text[strlen(name)] ) <= remainingLen || name[strlen( name ) - 1] == ' ' ) ) {
+								if ( strlen( name ) > 2 && Q_IsColorString( &name[strlen( name ) - 2] ) ) {
+									name[strlen( name ) - 1] = 0;
 								}
+								name[strlen( name ) - 1] = 0;
 							}
 							Q_strncpyz( playerNames[rowIdx], name, sizeof( playerNames[rowIdx] ) );
 							json_object_set_new( jstats, "team", json_integer( curTeam ) );
 							// parse the rest of the line first, so we can also match by score
-							int statsIdx = nameColLen + 1;
+							int dividerIdx = nameColLen + 1;
 							char stats[MAX_STRING_CHARS];
 							Q_strncpyz( stats, text, sizeof( stats ) );
 							Q_CleanStr( stats );
-							while ( statsIdx < strlen( text ) ) {
-								const char* colEnd = Q_strchrs( &divider[statsIdx + 2], " \n" );
+							int statsIdx = strlen( stats ) - strlen( divider ) + dividerIdx;
+							while ( statsIdx < strlen( stats ) && dividerIdx < strlen( divider ) ) {
+								const char* colEnd = Q_strchrs( &divider[dividerIdx], " \n" );
 								if ( colEnd == NULL ) {
-									break;
+									//break;
+									colEnd = &divider[strlen( divider )];
 								}
-								int colLen = colEnd - &divider[statsIdx + 2];
+								int colLen = colEnd - &divider[dividerIdx];
 								if ( colLen == 0 ) { break; }
 								char key[MAX_STRING_CHARS];
-								Q_strncpyz( key, &header[statsIdx + 2], colLen + 1 );
+								Q_strncpyz( key, &header[dividerIdx], colLen + 1 );
 								Q_strlwr( key );
 								char value[MAX_STRING_CHARS];
 								int skipLen = 0;
@@ -732,6 +740,7 @@ int main( int argc, char **argv ) {
 								for ( ; value[strlen( value ) - 1] == ' '; value[strlen( value ) - 1] = '\0' ) {}
 								//Com_Printf( "%s: %s\n", key, value );
 								statsIdx += colLen + 1;
+								dividerIdx += colLen + 1;
 
 								if ( Q_isanumber( value ) && strchr( value, '.' ) == NULL) {
 									json_object_set_new( jstats, key, json_integer( atoi( value ) ) );
