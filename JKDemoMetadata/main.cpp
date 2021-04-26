@@ -661,6 +661,29 @@ int main( int argc, char **argv ) {
 							break;
 						}
 						text = Cmd_Argv( 1 );
+						const char* overflowStr = "Server command overflow\n";
+						if ( strlen( text ) > strlen( overflowStr ) && !strcmp( &text[strlen( text ) - strlen( overflowStr )], overflowStr ) ) {
+							// this could happen if a player is 999ing during the printout of the ctfstats and the printing causes their command buffer to overflow in the middle.
+							// need to skip this command + the next command
+							if ( ctx->clc.lastExecutedServerCommand == ctx->clc.serverCommandSequence ) { break; } // shouldn't happen since a CS command should be sent along with this cmd
+							// check for following cs command, and handle it if found.  this should probably be refactored a bit
+							ctx->clc.lastExecutedServerCommand++;
+							char* command = ctx->clc.serverCommands[ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
+							Cmd_TokenizeString( command );
+							char* cmd = Cmd_Argv( 0 );
+							if ( !strcmp( cmd, "cs" ) ) {
+								if ( strcmp( Cmd_Argv( 1 ), "21" ) || ctx->cl.snap.serverTime - atoi( Cmd_Argv( 2 ) ) <= getCurrentTime() ) {
+									// allow time only to be set backwards, not forwards
+									CL_ConfigstringModified();
+								}
+								else {
+									Com_Printf( "Skipping command %s since it fast forwards time %d to %d\n", command, getCurrentTime(), ctx->cl.snap.serverTime - atoi( Cmd_Argv( 2 ) ) );
+								}
+							} else {
+								ctx->clc.lastExecutedServerCommand--;
+							}
+							continue;
+						}
 						Q_strcat( ctfstats, sizeof( ctfstats ), text );
 						if ( !strcmp( text, "\n" ) ) {
 							numLinebreaks++;
