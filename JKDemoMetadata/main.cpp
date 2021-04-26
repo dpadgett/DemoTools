@@ -707,6 +707,7 @@ int main( int argc, char **argv ) {
 								continue;
 							}
 							name[MAX_NETNAME] = 0;
+							if ( name[MAX_NETNAME - 1] == '^' ) { name[MAX_NETNAME - 1] = 0; }
 							int remainingLen = strlen( divider ) - nameColLen;
 							while ( *name && ( Q_PrintStrlen( &text[strlen(name)] ) <= remainingLen || name[strlen( name ) - 1] == ' ' ) ) {
 								if ( strlen( name ) > 2 && Q_IsColorString( &name[strlen( name ) - 2] ) ) {
