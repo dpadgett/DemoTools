@@ -19,7 +19,8 @@ extern void system( char * );
 // version 6: added bookmarks
 // version 7: added extraction of server ctfstats
 // version 8: bugfix for ctfstats matching
-const int kSchemaVersion = 8;
+// version 9: added extraction of machine-readable server ctfstats
+const int kSchemaVersion = 9;
 
 typedef struct info_s {
 	long startTime;
@@ -759,7 +760,8 @@ int main( int argc, char **argv ) {
 								Q_strlwr( key );
 								char value[MAX_STRING_CHARS];
 								int skipLen = 0;
-								for ( ; stats[statsIdx + skipLen] == ' '; skipLen++ ) {}
+								for ( ; stats[statsIdx + skipLen] == ' ' && skipLen < colLen; skipLen++ ) {}
+								//Com_Printf( "%s\n%d %d %d\n", &stats[statsIdx + skipLen], colLen, skipLen, statsIdx );
 								Q_strncpyz( value, &stats[statsIdx + skipLen], colLen + 1 - skipLen );
 								for ( ; value[strlen( value ) - 1] == ' '; value[strlen( value ) - 1] = '\0' ) {}
 								//Com_Printf( "%s: %s\n", key, value );
@@ -836,6 +838,89 @@ int main( int argc, char **argv ) {
 					}
 				}
 			}
+      if ( !strcmp( cmd, "kls" ) && Cmd_Argc() >= 5 && !strcmp( Cmd_Argv( 1 ), "-1" ) && !strcmp( Cmd_Argv( 2 ), "-1" ) && !strcmp( Cmd_Argv( 3 ), "mfs" ) ) {
+        // machine-friendly stats printing
+        //Com_Printf( "Received machine-friendly stats: %s\n", command );
+        int idx = 4;
+        int version = atoi( Cmd_Argv( idx++ ) );
+        //Com_Printf( "Version: %d\n", version );
+        //Com_Printf( "Argc: %d\n", Cmd_Argc() );
+        int clientNum = atoi( Cmd_Argv( idx++ ) );
+				json_t* jstats = json_object();
+        if ( ( version < 3 && Cmd_Argc() >= 54 ) || ( version >= 3 && version <= 4 && Cmd_Argc() >= 55 ) ) {
+          json_object_set_new( jstats, "protocol", json_integer( version ) );
+          //json_object_set_new( jstats, "client num", json_integer( clientNum ) );
+          json_object_set_new( jstats, "team", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "time in ms", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "final pos", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "all pos played", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "captures", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "assists", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "defends", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "accuracy", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "airs", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "teamkills", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "takes", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "pits", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "pitted", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "dmg", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "fc dmg", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "clr dmg", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "other dmg", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "tkn", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "fc tkn", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "clr tkn", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "other tkn", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "fckil", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "fckileff", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "rets", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "sk", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "total hold", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "max hold", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "avg spd", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "top spd", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "boon", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "push", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "pull", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "heal", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "TE", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "te eff", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          if ( version >= 3 ) {
+            json_object_set_new( jstats, "te received", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          }
+          json_object_set_new( jstats, "enemy nrg", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "absorb", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "protdmg", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "prottime", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "rage", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "drain", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "drained", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "fs", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "base", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "mid", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "enemy base", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          json_object_set_new( jstats, "enemy fs", json_integer( atoi( Cmd_Argv( idx++ ) ) ) );
+          //json_object_set_new( jstats, "name", json_string( Cmd_Argv( idx++ ) ) );
+
+          //json_dumpf( jstats, stdout, JSON_INDENT(2) | JSON_PRESERVE_ORDER );
+
+					// i decided embedding the stats into scoreboard makes more sense
+					json_t* scoreLists[] = { json_object_get( scoreRoot, "redplayers" ), json_object_get( scoreRoot, "blueplayers" ) };
+					for ( int scoreListIdx = 0; scoreListIdx < ARRAY_LEN( scoreLists ); scoreListIdx++ ) {
+						json_t* scoreList = scoreLists[scoreListIdx];
+						if ( scoreList == NULL ) { continue;  }
+						for ( int scoreIdx = 0; scoreIdx < json_array_size( scoreList ); scoreIdx++ ) {
+							json_t* score = json_array_get( scoreList, scoreIdx );
+							json_t* scoreClient = json_object_get( score, "client" );
+							if ( scoreClient == NULL ) { continue; }
+							int scoreClientIdx = json_integer_value( scoreClient );
+              if ( scoreClientIdx != clientNum ) { continue; }
+              // match!
+              json_object_set( score, "ctfstats", jstats );
+						}
+					}
+        }
+      }
 			//Com_Printf( "Received server command %d: %s\n", ctx->clc.lastExecutedServerCommand, command );
 		}
 		updateClientInfo( &clientNewmodTrack );
