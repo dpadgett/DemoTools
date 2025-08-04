@@ -9,25 +9,15 @@
 #include <fcntl.h>
 #endif
 
-void writeDemoHeader(FILE *fp) {
-	byte		bufData[MAX_MSGLEN];
-	msg_t	buf;
+void writeDemoHeaderToMsg(msg_t *msg, int serverCommandSequence) {
 	int			i;
-	int			len;
 	entityState_t	*ent;
 	entityState_t	nullstate;
 	char		*s;
 
 	// write out the gamestate message
-	MSG_Init (&buf, bufData, sizeof(bufData));
-	MSG_Bitstream(&buf);
-
-	// NOTE, MRE: all server->client messages now acknowledge
-	MSG_WriteLong( &buf, ctx->clc.reliableSequence );
-
-	MSG_WriteByte (&buf, svc_gamestate);
-	// hack - subtract out - MAX_RELIABLE_COMMANDS + 1 from command sequence so it still executes commands from first snapshot
-	MSG_WriteLong( &buf, ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 1 );
+	MSG_WriteByte (msg, svc_gamestate);
+	MSG_WriteLong( msg, serverCommandSequence );
 
 	// configstrings
 	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
@@ -35,9 +25,12 @@ void writeDemoHeader(FILE *fp) {
 			continue;
 		}
 		s = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[i];
-		MSG_WriteByte (&buf, svc_configstring);
-		MSG_WriteShort (&buf, i);
-		MSG_WriteBigString (&buf, s);
+		MSG_WriteByte ( msg, svc_configstring);
+		int start = msg->cursize;
+		MSG_WriteShort ( msg, i);
+		MSG_WriteBigString ( msg, s);
+
+		Com_Printf( "%3i: %d: %s\n", start, i, s );
 	}
 
 	// baselines
@@ -47,18 +40,19 @@ void writeDemoHeader(FILE *fp) {
 		if ( !ent->number ) {
 			continue;
 		}
-		MSG_WriteByte (&buf, svc_baseline);
-		MSG_WriteDeltaEntity (&buf, &nullstate, ent, qtrue );
+		MSG_WriteByte ( msg, svc_baseline);
+		Com_Printf( "baseline %3i: %d\n", msg->cursize, ent->number );
+		MSG_WriteDeltaEntity ( msg, &nullstate, ent, qtrue );
 	}
 
-	MSG_WriteByte( &buf, svc_EOF );
+	MSG_WriteByte( msg, svc_EOF );
 
 	// finished writing the gamestate stuff
 
 	// write the client num
-	MSG_WriteLong(&buf, ctx->clc.clientNum);
+	MSG_WriteLong(msg, ctx->clc.clientNum);
 	// write the checksum feed
-	MSG_WriteLong(&buf, ctx->clc.checksumFeed);
+	MSG_WriteLong(msg, ctx->clc.checksumFeed);
 
 	// RMG stuff
 	/*if ( clc.rmgHeightMapSize )
@@ -66,43 +60,97 @@ void writeDemoHeader(FILE *fp) {
 		int i;
 
 		// Height map
-		MSG_WriteShort ( &buf, (unsigned short)clc.rmgHeightMapSize );
-		MSG_WriteBits ( &buf, 0, 1 );
-		MSG_WriteData( &buf, clc.rmgHeightMap, clc.rmgHeightMapSize );
+		MSG_WriteShort ( msg, (unsigned short)clc.rmgHeightMapSize );
+		MSG_WriteBits ( msg, 0, 1 );
+		MSG_WriteData( msg, clc.rmgHeightMap, clc.rmgHeightMapSize );
 
 		// Flatten map
-		MSG_WriteShort ( &buf, (unsigned short)clc.rmgHeightMapSize );
-		MSG_WriteBits ( &buf, 0, 1 );
-		MSG_WriteData( &buf, clc.rmgFlattenMap, clc.rmgHeightMapSize );
+		MSG_WriteShort ( msg, (unsigned short)clc.rmgHeightMapSize );
+		MSG_WriteBits ( msg, 0, 1 );
+		MSG_WriteData( msg, clc.rmgFlattenMap, clc.rmgHeightMapSize );
 
 		// Seed
-		MSG_WriteLong ( &buf, clc.rmgSeed );
+		MSG_WriteLong ( msg, clc.rmgSeed );
 
 		// Automap symbols
-		MSG_WriteShort ( &buf, (unsigned short)clc.rmgAutomapSymbolCount );
+		MSG_WriteShort ( msg, (unsigned short)clc.rmgAutomapSymbolCount );
 		for ( i = 0; i < clc.rmgAutomapSymbolCount; i ++ )
 		{
-			MSG_WriteByte ( &buf, (unsigned char)clc.rmgAutomapSymbols[i].mType );
-			MSG_WriteByte ( &buf, (unsigned char)clc.rmgAutomapSymbols[i].mSide );
-			MSG_WriteLong ( &buf, (long)clc.rmgAutomapSymbols[i].mOrigin[0] );
-			MSG_WriteLong ( &buf, (long)clc.rmgAutomapSymbols[i].mOrigin[1] );
+			MSG_WriteByte ( msg, (unsigned char)clc.rmgAutomapSymbols[i].mType );
+			MSG_WriteByte ( msg, (unsigned char)clc.rmgAutomapSymbols[i].mSide );
+			MSG_WriteLong ( msg, (long)clc.rmgAutomapSymbols[i].mOrigin[0] );
+			MSG_WriteLong ( msg, (long)clc.rmgAutomapSymbols[i].mOrigin[1] );
 		}
 	}
 	else*/
 	{
-		MSG_WriteShort ( &buf, 0 );
+		MSG_WriteShort ( msg, 0 );
 	}
+}
+
+void writeDemoHeader( FILE* fp ) {
+	byte		bufData[MAX_MSGLEN];
+	msg_t	buf;
+	int len;
+
+	MSG_Init( &buf, bufData, sizeof( bufData ) );
+	MSG_Bitstream( &buf );
+
+	// NOTE, MRE: all server->client messages now acknowledge
+	MSG_WriteLong( &buf, ctx->clc.reliableSequence );
+
+	// hack - subtract out - MAX_RELIABLE_COMMANDS + 1 from command sequence so it still executes commands from first snapshot
+	int serverCommandSequence = ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 1;
+	writeDemoHeaderToMsg( &buf, serverCommandSequence );
 
 	// finished writing the client packet
 	MSG_WriteByte( &buf, svc_EOF );
 
 	// write it to the demo file
 	len = LittleLong( ctx->clc.serverMessageSequence - 1 );
-	fwrite (&len, 1, 4, fp);
+	fwrite( &len, 1, 4, fp );
 
-	len = LittleLong (buf.cursize);
-	fwrite (&len, 4, 1, fp);
-	fwrite (buf.data, 1, buf.cursize, fp);
+	len = LittleLong( buf.cursize );
+	fwrite( &len, 4, 1, fp );
+	fwrite( buf.data, 1, buf.cursize, fp );
+
+	// the rest of the demo file will be copied from net messages
+}
+
+void writeDemoHeaderWithServerCommands( FILE* fp, int reliableAcknowledge, int serverCommandSequence, int serverCommandOffset ) {
+	byte		bufData[MAX_MSGLEN];
+	msg_t	buf;
+	int len;
+
+	MSG_Init( &buf, bufData, sizeof( bufData ) );
+	MSG_Bitstream( &buf );
+
+	// NOTE, MRE: all server->client messages now acknowledge
+	MSG_WriteLong( &buf, ctx->clc.reliableSequence );
+
+	// copy over any commands
+	for ( int serverCommand = reliableAcknowledge + 1; serverCommand <= serverCommandSequence; serverCommand++ ) {
+		char* command = ctx->clc.serverCommands[serverCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
+		if ( cl_shownet->integer >= 1 ) {
+			Com_Printf( "Writing server command %d: %s\n", serverCommand, command );
+		}
+		MSG_WriteByte( &buf, svc_serverCommand );
+		MSG_WriteLong( &buf, serverCommand + serverCommandOffset );
+		MSG_WriteString( &buf, command );
+	}
+
+	writeDemoHeaderToMsg( &buf, serverCommandSequence + serverCommandOffset );
+
+	// finished writing the client packet
+	MSG_WriteByte( &buf, svc_EOF );
+
+	// write it to the demo file
+	len = LittleLong( ctx->clc.serverMessageSequence - 1 );
+	fwrite( &len, 1, 4, fp );
+
+	len = LittleLong( buf.cursize );
+	fwrite( &len, 4, 1, fp );
+	fwrite( buf.data, 1, buf.cursize, fp );
 
 	// the rest of the demo file will be copied from net messages
 }
@@ -217,9 +265,16 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 
 	MSG_WriteLong( msg, ctx->clc.reliableSequence );
 
+	if ( cl_shownet->integer >= 1 ) {
+		Com_Printf( "Writing message %d\n", ctx->cl.snap.messageNum );
+	}
+
 	// copy over any commands
 	for ( int serverCommand = firstServerCommand; serverCommand <= ctx->clc.serverCommandSequence; serverCommand++ ) {
 		char *command = ctx->clc.serverCommands[ serverCommand & ( MAX_RELIABLE_COMMANDS - 1 ) ];
+		if ( cl_shownet->integer >= 1 ) {
+			Com_Printf( "Writing server command %d: %s\n", serverCommand, command );
+		}
 		MSG_WriteByte( msg, svc_serverCommand );
 		MSG_WriteLong( msg, serverCommand + serverCommandOffset );
 		MSG_WriteString( msg, command );
@@ -227,9 +282,13 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 
 	// this is the snapshot we are creating
 	frame = &ctx->cl.snap;
-	if ( ctx->cl.snap.messageNum > 0 && !forceNonDelta ) {
+	qboolean nonDelta = ctx->cl.snap.deltaNum == -1 ? qtrue : qfalse;
+	if ( ctx->cl.snap.messageNum > 0 && !forceNonDelta && !nonDelta ) {
 		lastframe = 1;
-		oldframe = &ctx->cl.snapshots[(ctx->cl.snap.messageNum - 1) & PACKET_MASK]; // 1 frame previous
+		if ( ctx->cl.snap.deltaNum > 0 && ctx->cl.snap.deltaNum >= ctx->cl.snap.messageNum - PACKET_BACKUP ) {
+			lastframe = ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum;
+		}
+		oldframe = &ctx->cl.snapshots[(ctx->cl.snap.messageNum - lastframe) & PACKET_MASK];
 		if ( !oldframe->valid ) {
 			// not yet set
 			lastframe = 0;
@@ -238,6 +297,14 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 	} else {
 		lastframe = 0;
 		oldframe = NULL;
+	}
+
+	if ( cl_shownet->integer >= 1 ) {
+		Com_Printf( "Writing snapshot, delta %d, numEntities %d\n", lastframe, frame->numEntities );
+		for ( int i = 0; i < frame->numEntities; i++ ) {
+			Com_Printf( "%d ", ctx->cl.parseEntities[( frame->parseEntitiesNum + i ) % MAX_PARSE_ENTITIES].number );
+		}
+		Com_Printf( "\n" );
 	}
 
 	MSG_WriteByte (msg, svc_snapshot);

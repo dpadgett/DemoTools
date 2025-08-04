@@ -6,7 +6,7 @@
 
 extern	cvar_t	*cl_shownet;
 
-char *svc_strings[256] = {
+const char *svc_strings[256] = {
 	"svc_bad",
 
 	"svc_nop",
@@ -20,7 +20,7 @@ char *svc_strings[256] = {
 	"svc_mapchange",
 };
 
-void SHOWNET( msg_t *msg, char *s) {
+void SHOWNET( msg_t *msg, const char *s) {
 	if ( cl_shownet->integer >= 2) {
 		Com_Printf ("%3i:%s\n", msg->readcount-1, s);
 	}
@@ -34,13 +34,22 @@ Command strings are just saved off until cgame asks for them
 when it transitions a snapshot
 =====================
 */
-void CL_ParseCommandString( msg_t *msg ) {
+void CL_ParseCommandString( msg_t *msg, qboolean firstServerCommandInMessage ) {
 	char	*s;
 	int		seq;
 	int		index;
 
 	seq = MSG_ReadLong( msg );
 	s = MSG_ReadString( msg );
+
+	if ( firstServerCommandInMessage ) {
+		ctx->serverReliableAcknowledge = seq - 1;
+	}
+
+	if ( cl_shownet->integer >= 1 && ctx->clc.clientNum == 2 ) {
+		Com_Printf( "Parsed server command %d: %s\n", seq, s );
+	}
+
 	// see if we have already executed stored it off
 	if ( ctx->clc.serverCommandSequence >= seq ) {
 		return;
@@ -67,7 +76,7 @@ void CL_ParseRMG ( msg_t* msg )
 CL_ParseGamestate
 ==================
 */
-void CL_ParseGamestate( msg_t *msg ) {
+void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 	int				i;
 	entityState_t	*es;
 	int				newnum;
@@ -82,6 +91,9 @@ void CL_ParseGamestate( msg_t *msg ) {
 
 	// a gamestate always marks a server command sequence
 	ctx->clc.serverCommandSequence = MSG_ReadLong( msg );
+	if ( firstServerCommandInMessage ) {
+		ctx->serverReliableAcknowledge = ctx->clc.serverCommandSequence - 1;
+	}
 
 	// parse all the configstrings and baselines
 	ctx->cl.gameState.dataCount = 1;	// leave a 0 at the beginning for uninitialized configstrings
@@ -103,7 +115,7 @@ void CL_ParseGamestate( msg_t *msg ) {
 			}
 			s = MSG_ReadBigString( msg );
 
-			if (cl_shownet->integer >= 2)
+			if (cl_shownet->integer >= 2 || qtrue)
 			{
 				Com_Printf("%3i: %d: %s\n", start, i, s);
 			}
@@ -119,7 +131,9 @@ void CL_ParseGamestate( msg_t *msg ) {
 			Com_Memcpy( ctx->cl.gameState.stringData + ctx->cl.gameState.dataCount, s, len + 1 );
 			ctx->cl.gameState.dataCount += len + 1;
 		} else if ( cmd == svc_baseline ) {
+			int start = msg->readcount;
 			newnum = MSG_ReadBits( msg, GENTITYNUM_BITS );
+			Com_Printf( "baseline %3i: %d \n", start, newnum );
 			if ( newnum < 0 || newnum >= MAX_GENTITIES ) {
 				Com_Error( ERR_DROP, "Baseline number out of range: %i", newnum );
 			}
@@ -131,11 +145,15 @@ void CL_ParseGamestate( msg_t *msg ) {
 		}
 	}
 
+	Com_Printf( "eof %3i\n", msg->readcount );
 	ctx->clc.clientNum = MSG_ReadLong(msg);
+	Com_Printf( "clientnum %3i: %d\n", msg->readcount, ctx->clc.clientNum );
 	// read the checksum feed
 	ctx->clc.checksumFeed = MSG_ReadLong( msg );
+	Com_Printf( "checksumFeed %3i: %d\n", msg->readcount, ctx->clc.checksumFeed );
 
 	CL_ParseRMG ( msg ); //rwwRMG - get info for it from the server
+	Com_Printf( "end of parse %3i of %3i\n", msg->readcount, msg->cursize );
 }
 
 /*
@@ -462,10 +480,15 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		Com_Printf ("------------------\n");
 	}
 
+	if ( cl_shownet->integer >= 1 && ctx->clc.clientNum == 2 ) {
+		Com_Printf( "Parsing message %d\n", ctx->clc.serverMessageSequence );
+	}
+
 	MSG_Bitstream(msg);
 
 	// get the reliable sequence acknowledge number
-	long reliableAcknowledge = MSG_ReadLong( msg );
+	ctx->clc.reliableAcknowledge = MSG_ReadLong( msg );
+	qboolean firstServerCommandInMessage = qtrue;
 
 	//
 	// parse the message
@@ -480,6 +503,11 @@ void CL_ParseServerMessage( msg_t *msg ) {
 
 		if ( cmd == svc_EOF) {
 			SHOWNET( msg, "END OF MESSAGE" );
+			while ( msg->readcount < msg->cursize ) {
+				Com_Printf( "Count: %x Size: %x\n", msg->readcount, msg->cursize );
+				int extraByte = MSG_ReadByte( msg );
+				Com_Printf( "Read: %c\n", extraByte );
+			}
 			break;
 		}
 
@@ -499,13 +527,22 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		case svc_nop:
 			break;
 		case svc_serverCommand:
-			CL_ParseCommandString( msg );
+			CL_ParseCommandString( msg, firstServerCommandInMessage );
+			firstServerCommandInMessage = qfalse;
 			break;
 		case svc_gamestate:
-			CL_ParseGamestate( msg );
+			CL_ParseGamestate( msg, firstServerCommandInMessage );
+			firstServerCommandInMessage = qfalse;
 			break;
 		case svc_snapshot:
 			CL_ParseSnapshot( msg );
+			if ( cl_shownet->integer >= 1 && ctx->clc.clientNum == 2 ) {
+				Com_Printf( "Parsed snapshot delta %d, numEntities %d\n", ctx->cl.snap.deltaNum == -1 ? 0 : ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum, ctx->cl.snap.numEntities );
+				for ( int i = 0; i < ctx->cl.snap.numEntities; i++ ) {
+					Com_Printf( "%d ", ctx->cl.parseEntities[( ctx->cl.snap.parseEntitiesNum + i ) % MAX_PARSE_ENTITIES].number );
+				}
+				Com_Printf( "\n" );
+			}
 			break;
 		case svc_setgame:
 			CL_ParseSetGame( msg );

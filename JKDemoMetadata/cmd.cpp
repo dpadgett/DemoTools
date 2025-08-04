@@ -40,7 +40,7 @@ int		Cmd_Argc( void ) {
 Cmd_Argv
 ============
 */
-char	*Cmd_Argv( int arg ) {
+char *Cmd_Argv( int arg ) {
 	if ( (unsigned)arg >= (unsigned)cmd_argc )
 		return "";
 
@@ -56,7 +56,7 @@ they can't have pointers returned to them
 ============
 */
 void	Cmd_ArgvBuffer( int arg, char *buffer, int bufferLength ) {
-	Q_strncpyz( buffer, Cmd_Argv( arg ), bufferLength );
+	Q_strncpyz( buffer, (const char *)Cmd_Argv( arg ), bufferLength );
 }
 
 /*
@@ -90,7 +90,7 @@ Cmd_Args
 Returns a single string containing argv(1) to argv(argc()-1)
 ============
 */
-char	*Cmd_Args( void ) {
+char *Cmd_Args( void ) {
 	return Cmd_ArgsFrom( 1 );
 }
 
@@ -103,7 +103,7 @@ they can't have pointers returned to them
 ============
 */
 void	Cmd_ArgsBuffer( char *buffer, int bufferLength ) {
-	Q_strncpyz( buffer, Cmd_ArgsFrom( 1 ), bufferLength );
+	Q_strncpyz( buffer, (const char *)Cmd_ArgsFrom( 1 ), bufferLength );
 }
 
 /*
@@ -115,7 +115,7 @@ they can't have pointers returned to them
 ============
 */
 void	Cmd_ArgsFromBuffer( int arg, char *buffer, int bufferLength ) {
-	Q_strncpyz( buffer, Cmd_ArgsFrom( arg ), bufferLength );
+	Q_strncpyz( buffer, (const char *)Cmd_ArgsFrom( arg ), bufferLength );
 }
 
 /*

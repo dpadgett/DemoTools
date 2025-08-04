@@ -1313,8 +1313,8 @@ int main( int argc, char **argv ) {
 			if (es->number == 0) {
 				continue;
 			}
-			char *mplace = "";
-			char *mpain = "";
+			const char *mplace = "";
+			const char *mpain = "";
 			if (es->eType == ET_MOVER) {
 				int offset2 = ctx->cl.gameState.stringOffsets[ CS_MODELS+es->modelindex2 ];
 				const char *modelName2 = ctx->cl.gameState.stringData + offset2;
