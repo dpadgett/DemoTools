@@ -383,6 +383,15 @@ int main( int argc, char **argv ) {
 		if ( !ctx->cl.newSnapshots ) {
 			continue;
 		}
+		int readCount = FS_ReadCount( fp );
+		if ( readCount >= 0x00004800 ) {
+			cl_shownet->integer = 3;
+		}
+		if ( cl_shownet->integer >= 3 ) {
+			Com_Printf( "ReadCount: %d (%x)\n", readCount, readCount );
+		}
+
+		continue;
     if ( progress_mode && ctx->cl.snap.serverTime > lastReportTime + 10000 ) {
       Com_Printf( "read snapshot at time %d\n", ctx->cl.snap.serverTime );
       lastReportTime = ctx->cl.snap.serverTime;

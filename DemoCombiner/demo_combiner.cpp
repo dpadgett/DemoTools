@@ -65,6 +65,7 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		if ( !ctx->cl.newSnapshots ) {
 			demo->gamestateServerReliableAcknowledge = ctx->serverReliableAcknowledge;
 			demo->gamestateServerCommandSequence = ctx->clc.serverCommandSequence;
+			cctx->initialMessageExtraByte[ctx->clc.clientNum] = ctx->messageExtraByte;
 			FreeMsg( msg );
 			continue;
 		}
@@ -132,9 +133,14 @@ int ParseTime( char *timeStr ) {
 }
 
 
+typedef struct entityAndFloat_s {
+	entityState_t* ent;
+	entityState_t floatForced;
+} entityAndFloat_t;
+
 typedef struct snapshotEntityNumbers_s {
 	int				numSnapshotEntities;
-	entityState_t *	snapshotEntities[MAX_SNAPSHOT_ENTITIES];
+	entityAndFloat_t	snapshotEntities[MAX_SNAPSHOT_ENTITIES];
 } snapshotEntityNumbers_t;
 
 /*
@@ -145,8 +151,8 @@ SV_QsortEntityNumbers
 static int QDECL SV_QsortEntityNumbers( const void *a, const void *b ) {
 	int ea, eb;
 
-	ea = (*(entityState_t **)a)->number;
-	eb = (*(entityState_t **)b)->number;
+	ea = ((entityAndFloat_t*)a)->ent->number;
+	eb = ((entityAndFloat_t*)b)->ent->number;
 
 	if ( ea == eb ) {
 		Com_Error( ERR_DROP, "SV_QsortEntityStates: duplicated entity" );
@@ -165,22 +171,33 @@ static int QDECL SV_QsortEntityNumbers( const void *a, const void *b ) {
 SV_AddEntToSnapshot
 ===============
 */
-static void SV_AddEntToSnapshot( entityState_t *ent, snapshotEntityNumbers_t *eNums, qboolean overwrite = qfalse ) {
+typedef struct netField_s {
+	const char* name;
+	size_t	offset;
+	int		bits;		// 0 = float
+#ifndef FINAL_BUILD
+	unsigned	mCount;
+#endif
+} netField_t;
+extern netField_t entityStateFields[];
+static void SV_AddEntToSnapshot( int sourceClient, entityState_t *ent, entityState_t *floatForcedEnt, snapshotEntityNumbers_t *eNums, qboolean overwrite = qfalse ) {
 	// if we have already added this entity to this snapshot, don't add again
 	/*if ( svEnt->snapshotCounter == sv.snapshotCounter ) {
 		return;
 	}
 	svEnt->snapshotCounter = sv.snapshotCounter;*/
+	entityState_t *toFloatForced = NULL;
 	for ( int idx = 0; idx < eNums->numSnapshotEntities; idx++ ) {
-		if ( eNums->snapshotEntities[idx]->number == ent->number ) {
-			if ( memcmp( eNums->snapshotEntities[idx], ent, sizeof( *ent ) ) ) {
+		if ( eNums->snapshotEntities[idx].ent->number == ent->number ) {
+			if ( memcmp( eNums->snapshotEntities[idx].ent, ent, sizeof( *ent ) ) ) {
 				// Com_Error( ERR_FATAL, "Entities differ!" );
-				Com_Printf( "Entity %d differs between clients!", ent->number );
+				Com_Printf( "Entity %d differs between clients!\n", ent->number );
 			}
 			if ( overwrite ) {
-				eNums->snapshotEntities[idx] = ent;
+				eNums->snapshotEntities[idx] = { ent };
 			}
-			return;
+			toFloatForced = &eNums->snapshotEntities[idx].floatForced;
+			break;
 		}
 	}
 
@@ -189,8 +206,20 @@ static void SV_AddEntToSnapshot( entityState_t *ent, snapshotEntityNumbers_t *eN
 		return;
 	}
 
-	eNums->snapshotEntities[ eNums->numSnapshotEntities ] = ent;
-	eNums->numSnapshotEntities++;
+	if ( !toFloatForced ) {
+		eNums->snapshotEntities[eNums->numSnapshotEntities] = { ent };
+		toFloatForced = &eNums->snapshotEntities[eNums->numSnapshotEntities].floatForced;
+		eNums->numSnapshotEntities++;
+	}
+
+	for ( int i = 0; i < ( sizeof( entityState_t ) / 4 ) - 1; i++ ) {
+		netField_t* field = &entityStateFields[i];
+		int* fromF = (int*) ( (byte*) floatForcedEnt + field->offset );
+		int* toF = (int*) ( (byte*) toFloatForced + field->offset );
+		if ( *fromF == 1 ) {
+			*toF |= ( 1 << sourceClient );
+		}
+	}
 }
 
 
@@ -240,6 +269,9 @@ qboolean BG_InKnockDownOnly( int anim )
 	}
 	return qfalse;
 }
+
+
+extern bool sendFullNegativeZero;
 
 static combinedDemoContext_t mergedCtx;
 combinedDemoContext_t* cctx = &mergedCtx;
@@ -314,6 +346,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 	int framesSaved = 0;
 	int firstMissingFrame = -1;
 	json_t *missingFrames = json_array();
+	sendFullNegativeZero = true;
 	while ( true ) {
 		// find frame time
 		int frameTime = (int) (((unsigned int) -1) >> 1);//MAXINT;
@@ -362,8 +395,10 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 				mergedCtx.deltasnap[clientNum] = deltaNum == -1 ? 0 : messageNum - deltaNum;
 				int psIdx = mergedCtx.curPlayerStateIdxMask & ( 1 << clientNum ) ? 1 : 0;
 				mergedCtx.playerStates[psIdx][clientNum] = entryList[idx].ctx->cl.snap.ps;
+				mergedCtx.playerStatesForcedFields[psIdx][clientNum] = entryList[idx].ctx->playerStateForcedFields[entryList[idx].ctx->cl.snap.messageNum & PACKET_MASK];
 				if ( mergedCtx.playerStates[psIdx][clientNum].m_iVehicleNum ) {
 					mergedCtx.vehPlayerStates[psIdx][clientNum] = entryList[idx].ctx->cl.snap.vps;
+					mergedCtx.vehPlayerStatesForcedFields[psIdx][clientNum] = entryList[idx].ctx->vehPlayerStateForcedFields[entryList[idx].ctx->cl.snap.messageNum & PACKET_MASK];
 				}
 				int raIdx = mergedCtx.reliableAcknowledgeIdxMask & ( 1 << clientNum ) ? 1 : 0;
 				mergedCtx.serverReliableAcknowledge[raIdx][clientNum] = entryList[idx].ctx->serverReliableAcknowledge;
@@ -373,6 +408,9 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 				mergedCtx.curPlayerStateIdxMask ^= ( 1 << clientNum );
 				mergedCtx.lastServerMessageSequence[clientNum] = mergedCtx.serverMessageSequence[clientNum];
 				mergedCtx.serverMessageSequence[clientNum] = entryList[idx].ctx->clc.serverMessageSequence;
+				Com_Memcpy( mergedCtx.areamask[clientNum], entryList[idx].ctx->cl.snap.areamask, entryList[idx].ctx->areabytes );
+				mergedCtx.ctx.areabytes = entryList[idx].ctx->areabytes;
+				mergedCtx.messageExtraByte[clientNum] = entryList[idx].ctx->messageExtraByte;
 			}/* else if ( entryList[idx].ctx->cl.snap.serverTime > frameTime && !entryList[idx].eos ) {
 				// dropped frame, reuse last frame for .5s to smooth blips
 				if ( entryList[idx].ctx->cl.snap.serverTime <= frameTime + 500 ) {
@@ -509,16 +547,23 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 
 			frame->numEntities = 0;
 
+			if ( frameTime == 228005 ) {
+				Com_Printf( "Bad frame\n" );
+			}
+
 			int matchesMask = 0;
 			for ( int matchIdx = 0; matchIdx < mergedCtx.numMatches; matchIdx++ ) {
 				idx = mergedCtx.matches[matchIdx];
 				demoContext_t *dctx = entryList[idx].ctx;
 				clSnapshot_t *dsnap = &dctx->cl.snap;
 
+				cctx->snapFlags[entryList[idx].ctx->clc.clientNum] = dsnap->snapFlags;
+
 				// add all the entities
 				for ( int entIdx = dsnap->parseEntitiesNum; entIdx < dsnap->parseEntitiesNum + dsnap->numEntities; entIdx++ ) {
 					entityState_t *ent = &dctx->cl.parseEntities[entIdx & (MAX_PARSE_ENTITIES - 1)];
-					SV_AddEntToSnapshot( ent, &entityNumbers );
+					entityState_t *floatForced = &dctx->parseEntitiesFloatForced[entIdx & ( MAX_PARSE_ENTITIES - 1 )];
+					SV_AddEntToSnapshot( dctx->clc.clientNum, ent, floatForced, &entityNumbers );
 					owners[ent->number] |= 1 << entryList[idx].ctx->clc.clientNum;
 				}
 				//BG_PlayerStateToEntityStateExtraPolate( &dsnap->ps, &dentity[idx], dsnap->ps.commandTime, qfalse );
@@ -538,11 +583,11 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			}
 
 			// any ents that are missing from this snap but we had in the last snap, assume they are supposed to be gone
-			for ( int entIdx = 0; entIdx < MAX_GENTITIES; entIdx++ ) {
+			/*for ( int entIdx = 0; entIdx < MAX_GENTITIES; entIdx++ ) {
 				if ( (prev_owners[entIdx] & matchesMask) != 0 && owners[entIdx] == 0 ) {
 					owners[entIdx] = (prev_owners[entIdx] & matchesMask);
 				}
-			}
+			}*/
 
 			// if there were portals visible, there may be out of order entities
 			// in the list which will need to be resorted for the delta compression
@@ -561,14 +606,16 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			// copy the entity states out
 			frame->numEntities = 0;
 			for ( int i = 0 ; i < entityNumbers.numSnapshotEntities ; i++ ) {
-				entityState_t *ent = entityNumbers.snapshotEntities[i];
+				entityAndFloat_t *ent = &entityNumbers.snapshotEntities[i];
 				/* TODO fixme */ /* if ( ent->number == clientNum ) {
 					// don't add ourself
 					continue;
 				} */
 				entityState_t *state = &ctx->cl.parseEntities[ctx->cl.parseEntitiesNum % MAX_PARSE_ENTITIES];
+				entityState_t *floatForced = &cctx->parseEntitiesFloatForced[ctx->cl.parseEntitiesNum % MAX_PARSE_ENTITIES];
 				ctx->cl.parseEntitiesNum++;
-				*state = *ent;
+				*state = *ent->ent;
+				*floatForced = ent->floatForced;
 				// this should never hit, map should always be restarted first in SV_Frame
 				if ( ctx->cl.parseEntitiesNum >= 0x7FFFFFFE ) {
 					Com_Error(ERR_FATAL, "ctx->cl.parseEntitiesNum wrapped");

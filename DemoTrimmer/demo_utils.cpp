@@ -9,6 +9,12 @@
 #include <fcntl.h>
 #endif
 
+static void SHOWNET( msg_t* msg, const char* s ) {
+	if ( cl_shownet->integer >= 1 ) {
+		Com_Printf( "%3i:%s\n", msg->cursize - 1, s );
+	}
+}
+
 void writeDemoHeaderToMsg(msg_t *msg, int serverCommandSequence) {
 	int			i;
 	entityState_t	*ent;
@@ -162,8 +168,10 @@ SV_EmitPacketEntities
 Writes a delta update of an entityState_t list to the message.
 =============
 */
+void MSG_WriteDeltaEntityWithFloatsForced( msg_t* msg, struct entityState_s* from, struct entityState_s* to, struct entityState_s* floatForced,
+	qboolean force );
 static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *msg ) {
-	entityState_t	*oldent, *newent;
+	entityState_t	*oldent, *newent, *floatForced;
 	int		oldindex, newindex;
 	int		oldnum, newnum;
 	int		from_num_entities;
@@ -176,6 +184,7 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 	}
 
 	newent = NULL;
+	floatForced = NULL;
 	oldent = NULL;
 	newindex = 0;
 	oldindex = 0;
@@ -183,7 +192,8 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 		if ( newindex >= to->numEntities ) {
 			newnum = 9999;
 		} else {
-			newent = &ctx->cl.parseEntities[(to->parseEntitiesNum+newindex) & (MAX_PARSE_ENTITIES-1)];
+			newent = &ctx->cl.parseEntities[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			floatForced = &ctx->parseEntitiesFloatForced[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			newnum = newent->number;
 		}
 
@@ -198,7 +208,10 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 			// delta update from old position
 			// because the force parm is qfalse, this will not result
 			// in any bytes being emited if the entity has not changed at all
-			MSG_WriteDeltaEntity (msg, oldent, newent, qfalse );
+			if ( newnum == 264 ) {
+				//Com_Printf( "264\n" );
+			}
+			MSG_WriteDeltaEntityWithFloatsForced (msg, oldent, newent, floatForced, qfalse );
 			oldindex++;
 			newindex++;
 			continue;
@@ -206,7 +219,7 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 
 		if ( newnum < oldnum ) {
 			// this is a new entity, send it from the baseline
-			MSG_WriteDeltaEntity (msg, &ctx->cl.entityBaselines[newnum], newent, qtrue );
+			MSG_WriteDeltaEntityWithFloatsForced (msg, &ctx->cl.entityBaselines[newnum], newent, floatForced, qtrue );
 			newindex++;
 			continue;
 		}
@@ -234,6 +247,17 @@ void CL_WriteDemoMessage ( msg_t *msg, int headerBytes, FILE *fp ) {
 
 	static long wroteBytes = 0;
 
+	if ( ( msg->bit & 7 ) == 0 ) {
+		// to accomodate bits that aren't byte aligned, the message always sends a partial last byte.
+		// when bit is byte aligned, the last byte hasn't been written to yet and isn't initialized to zero.
+		// init to zero here.
+		//Com_Printf( "Byte aligned, setting next byte to zero\n" );
+		byte data = msg->data[msg->cursize];
+		data = msg->data[msg->cursize - 1];
+		data = msg->data[msg->cursize - 2];
+		msg->data[msg->cursize - 1] = ctx->messageExtraByte;
+	}
+
 	// write the packet sequence
 	len = ctx->clc.serverMessageSequence;
 	swlen = LittleLong( len );
@@ -253,6 +277,7 @@ void CL_WriteDemoMessage ( msg_t *msg, int headerBytes, FILE *fp ) {
 	wroteBytes += len;
 }
 
+void MSG_WriteDeltaPlayerstateWithFieldsForced( msg_t* msg, struct playerState_s* from, struct playerState_s* to, struct playerState_s* forcedFields, qboolean isVehiclePS );
 void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelta, int serverCommandOffset ) {
 	msg_t				msgImpl, *msg = &msgImpl;
 	byte				msgData[MAX_MSGLEN];
@@ -272,10 +297,11 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 	// copy over any commands
 	for ( int serverCommand = firstServerCommand; serverCommand <= ctx->clc.serverCommandSequence; serverCommand++ ) {
 		char *command = ctx->clc.serverCommands[ serverCommand & ( MAX_RELIABLE_COMMANDS - 1 ) ];
+		MSG_WriteByte( msg, svc_serverCommand );
 		if ( cl_shownet->integer >= 1 ) {
+			SHOWNET( msg, "svc_serverCommand" );
 			Com_Printf( "Writing server command %d: %s\n", serverCommand, command );
 		}
-		MSG_WriteByte( msg, svc_serverCommand );
 		MSG_WriteLong( msg, serverCommand + serverCommandOffset );
 		MSG_WriteString( msg, command );
 	}
@@ -299,15 +325,16 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 		oldframe = NULL;
 	}
 
+	MSG_WriteByte (msg, svc_snapshot);
+
 	if ( cl_shownet->integer >= 1 ) {
+		SHOWNET( msg, "svc_snapshot" );
 		Com_Printf( "Writing snapshot, delta %d, numEntities %d\n", lastframe, frame->numEntities );
 		for ( int i = 0; i < frame->numEntities; i++ ) {
 			Com_Printf( "%d ", ctx->cl.parseEntities[( frame->parseEntitiesNum + i ) % MAX_PARSE_ENTITIES].number );
 		}
 		Com_Printf( "\n" );
 	}
-
-	MSG_WriteByte (msg, svc_snapshot);
 
 	// NOTE, MRE: now sent at the start of every message from server to client
 	// let the client know which reliable clientCommands we have received
@@ -316,23 +343,35 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 	// send over the current server time so the client can drift
 	// its view of time to try to match
 	MSG_WriteLong (msg, frame->serverTime);
+	SHOWNET( msg, va( "frame->serverTime %d", frame->serverTime ) );
 
 	// what we are delta'ing from
 	MSG_WriteByte (msg, lastframe);
+	SHOWNET( msg, va( "lastframe %d", lastframe ) );
 
 	snapFlags = frame->snapFlags;
 	MSG_WriteByte (msg, snapFlags);
+	SHOWNET( msg, va( "snapFlags %d", frame->snapFlags ) );
 
 	// send over the areabits
-	MSG_WriteByte (msg, sizeof( frame->areamask ));
-	MSG_WriteData (msg, frame->areamask, sizeof( frame->areamask ));
+	int len;
+	if ( ctx->areabytes > 0 ) {
+		len = ctx->areabytes;
+	} else {
+		len = sizeof( frame->areamask );
+	}
+	MSG_WriteByte (msg, len);
+	MSG_WriteData (msg, frame->areamask, len);
+	SHOWNET( msg, va( "frame->areamask %d", len ) );
+
+	SHOWNET( msg, "playerstate" );
 
 	// delta encode the playerstate
 	if ( oldframe ) {
 #ifdef _ONEBIT_COMBO
 		MSG_WriteDeltaPlayerstate( msg, &oldframe->ps, &frame->ps, frame->pDeltaOneBit, frame->pDeltaNumBit );
 #else
-		MSG_WriteDeltaPlayerstate( msg, &oldframe->ps, &frame->ps );
+		MSG_WriteDeltaPlayerstateWithFieldsForced( msg, &oldframe->ps, &frame->ps, &ctx->playerStateForcedFields[frame->messageNum & PACKET_MASK], qfalse );
 #endif
 		if (frame->ps.m_iVehicleNum)
 		{ //then write the vehicle's playerstate too
@@ -342,7 +381,7 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 #ifdef _ONEBIT_COMBO
 				MSG_WriteDeltaPlayerstate( msg, NULL, &frame->vps, NULL, NULL, qtrue );
 #else
-				MSG_WriteDeltaPlayerstate( msg, NULL, &frame->vps, qtrue );
+				MSG_WriteDeltaPlayerstateWithFieldsForced( msg, NULL, &frame->vps, &ctx->vehPlayerStateForcedFields[frame->messageNum & PACKET_MASK], qtrue );
 #endif
 			}
 			else
@@ -350,7 +389,7 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 #ifdef _ONEBIT_COMBO
 				MSG_WriteDeltaPlayerstate( msg, &oldframe->vps, &frame->vps, frame->pDeltaOneBitVeh, frame->pDeltaNumBitVeh, qtrue );
 #else
-				MSG_WriteDeltaPlayerstate( msg, &oldframe->vps, &frame->vps, qtrue );
+				MSG_WriteDeltaPlayerstateWithFieldsForced( msg, &oldframe->vps, &frame->vps, &ctx->vehPlayerStateForcedFields[frame->messageNum & PACKET_MASK], qtrue );
 #endif
 			}
 		}
@@ -358,22 +397,24 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 #ifdef _ONEBIT_COMBO
 		MSG_WriteDeltaPlayerstate( msg, NULL, &frame->ps, NULL, NULL );
 #else
-		MSG_WriteDeltaPlayerstate( msg, NULL, &frame->ps );
+		MSG_WriteDeltaPlayerstateWithFieldsForced( msg, NULL, &frame->ps, &ctx->playerStateForcedFields[frame->messageNum & PACKET_MASK], qfalse );
 #endif
 		if (frame->ps.m_iVehicleNum)
 		{ //then write the vehicle's playerstate too
 #ifdef _ONEBIT_COMBO
 			MSG_WriteDeltaPlayerstate( msg, NULL, &frame->vps, NULL, NULL, qtrue );
 #else
-			MSG_WriteDeltaPlayerstate( msg, NULL, &frame->vps, qtrue );
+			MSG_WriteDeltaPlayerstateWithFieldsForced( msg, NULL, &frame->vps, &ctx->vehPlayerStateForcedFields[frame->messageNum & PACKET_MASK], qtrue );
 #endif
 		}
 	}
 
 	// delta encode the entities
+	SHOWNET( msg, "packet entities" );
 	SV_EmitPacketEntities (oldframe, frame, msg);
 
 	MSG_WriteByte( msg, svc_EOF );
+	SHOWNET( msg, "END OF MESSAGE" );
 
 	CL_WriteDemoMessage( msg, 0, fp );
 }

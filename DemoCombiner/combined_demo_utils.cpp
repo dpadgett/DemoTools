@@ -131,6 +131,13 @@ void writeMergedDemoHeader( FILE* fp ) {
 	// finished writing the client packet
 	MSG_WriteByte( &buf, svc_EOF );
 
+	// write extra bytes as needed
+	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+		if ( cctx->matchedClients & ( 1 << i ) ) {
+			MSG_WriteByte( &buf, cctx->initialMessageExtraByte[i] );
+		}
+	}
+
 	// write it to the demo file
 	len = LittleLong( ctx->clc.serverMessageSequence - 1 );
 	fwrite( &len, 1, 4, fp );
@@ -149,8 +156,12 @@ SV_EmitPacketEntities
 Writes a delta update of an entityState_t list to the message.
 =============
 */
+entityState_t zeroEnt = {};
+void MSG_WriteDeltaEntityOrFloatForced( msg_t* msg, struct entityState_s* from, struct entityState_s* to,
+	qboolean force, qboolean isFloatForced );
 static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* owners, int* prev_owners, msg_t* msg ) {
 	entityState_t* oldent, * newent;
+	entityState_t* oldfloatForced, * newfloatForced;
 	int		oldindex, newindex;
 	int		oldnum, newnum;
 	int		from_num_entities;
@@ -165,6 +176,8 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 
 	newent = NULL;
 	oldent = NULL;
+	newfloatForced = NULL;
+	oldfloatForced = NULL;
 	newindex = 0;
 	oldindex = 0;
 	if ( cl_shownet->integer >= 1 ) {
@@ -176,6 +189,7 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 		}
 		else {
 			newent = &ctx->cl.parseEntities[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			newfloatForced = &cctx->parseEntitiesFloatForced[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			newnum = newent->number;
 		}
 
@@ -184,6 +198,7 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 		}
 		else {
 			oldent = &ctx->cl.parseEntities[( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			oldfloatForced = &cctx->parseEntitiesFloatForced[( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			oldnum = oldent->number;
 		}
 
@@ -196,10 +211,13 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 			// delta update from old position
 			// because the force parm is qfalse, this will not result
 			// in any bytes being emited if the entity has not changed at all
-			MSG_WriteDeltaEntity( msg, oldent, newent, owner_delta != 0 ? qtrue : qfalse );
+			bool floatForcedChanged = memcmp( oldfloatForced, newfloatForced, sizeof( *newfloatForced ) );
+			MSG_WriteDeltaEntity( msg, oldent, newent, owner_delta != 0 || floatForcedChanged ? qtrue : qfalse );
 			if ( tmp.cursize == msg->cursize && tmp.bit == msg->bit ) {
 				// nothing was written, don't need to write ownership info since it didn't change
 			} else {
+				// write float forced
+				MSG_WriteDeltaEntityOrFloatForced( msg, oldfloatForced, newfloatForced, qtrue, qtrue );
 				// write owner bitmask
 				if ( cl_shownet->integer >= 1 ) {
 					Com_Printf( "%d %d ", entnum, owner_delta );
@@ -219,6 +237,8 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 		if ( newnum < oldnum ) {
 			// this is a new entity, send it from the baseline
 			MSG_WriteDeltaEntity( msg, &ctx->cl.entityBaselines[newnum], newent, qtrue );
+			// write float forced
+			MSG_WriteDeltaEntityOrFloatForced( msg, &zeroEnt, newfloatForced, qtrue, qtrue );
 			// write owner bitmask
 			if ( cl_shownet->integer >= 1 ) {
 				Com_Printf( "%d %d ", entnum, owner_delta );
@@ -236,7 +256,7 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 		if ( newnum > oldnum ) {
 			// the old entity isn't present in the new message
 			MSG_WriteDeltaEntity( msg, oldent, NULL, qtrue );
-			if ( oldent != NULL ) {
+			/* if ( oldent != NULL ) {
 				// write owner bitmask
 				// null oldent won't write anything at all
 				if ( cl_shownet->integer >= 1 ) {
@@ -254,7 +274,7 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 				if ( owners[entnum] != 0 ) {
 					owners[entnum] = 0;
 				}
-			}
+			} */
 			oldindex++;
 			continue;
 		}
@@ -297,6 +317,7 @@ static void CL_WriteDemoMessage( msg_t* msg, int headerBytes, FILE* fp ) {
 	wroteBytes += len;
 }
 
+void MSG_WriteDeltaForcedFields( msg_t* msg, struct playerState_s* from, struct playerState_s* to, qboolean isVehiclePS );
 void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceNonDelta, int serverCommandOffset ) {
 	msg_t				msgImpl, * msg = &msgImpl;
 	byte				msgData[MAX_MSGLEN];
@@ -384,11 +405,19 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	// its view of time to try to match
 	MSG_WriteLong( msg, frame->serverTime );
 
+	snapFlags = -1;
+	bool snapFlagsIdentical = qtrue;
+
 	// send bitmask of matches
 	MSG_WriteLong( msg, cctx->matchedClients );
 	// send original delta frame for each match
-	for ( int i = 0; i < MAX_CLIENTS; i++ ) {
+	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
 		if ( cctx->matchedClients & ( 1 << i ) ) {
+			if ( snapFlags == -1 ) {
+				snapFlags = cctx->snapFlags[i];
+			} else if ( snapFlags != cctx->snapFlags[i] ) {
+				snapFlagsIdentical = qfalse;
+			}
 			MSG_WriteByte( msg, cctx->deltasnap[i] );
 			if ( cctx->deltasnap[i] == 0 ) {
 				// non-delta frame, so write the reliable acknowledge for this client
@@ -401,29 +430,49 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	// what we are delta'ing from
 	MSG_WriteByte( msg, lastframe );
 
-	snapFlags = frame->snapFlags;
-	MSG_WriteByte( msg, snapFlags );
+	if ( snapFlagsIdentical ) {
+		MSG_WriteBits( msg, 1, 1 );
+		MSG_WriteByte( msg, snapFlags );
+	}
+	else {
+		MSG_WriteBits( msg, 0, 1 );
+		for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+			if ( cctx->matchedClients & ( 1 << i ) ) {
+				MSG_WriteByte( msg, cctx->snapFlags[i] );
+			}
+		}
+	}
 
 	// send over the areabits
-	MSG_WriteByte( msg, sizeof( frame->areamask ) );
-	MSG_WriteData( msg, frame->areamask, sizeof( frame->areamask ) );
+	MSG_WriteByte( msg, ctx->areabytes );
+	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+		if ( cctx->matchedClients & ( 1 << i ) ) {
+			MSG_WriteData( msg, cctx->areamask[i], ctx->areabytes );
+		}
+	}
 
 	// delta encode the playerstates
 	for ( int i = 0; i < MAX_CLIENTS; i++ ) {
 		if ( cctx->matchedClients & ( 1 << i ) ) {
 			playerState_t *ps = NULL, *oldps = NULL, *vps = NULL, *oldvps = NULL;
+			playerState_t* psff = NULL, * oldpsff = NULL, * vpsff = NULL, * oldvpsff = NULL;
 			int psIdx = cctx->curPlayerStateIdxMask & ( 1 << i ) ? 0 : 1;
 			ps = &cctx->playerStates[psIdx][i];
+			psff = &cctx->playerStatesForcedFields[psIdx][i];
 			vps = &cctx->vehPlayerStates[psIdx][i];
+			vpsff = &cctx->vehPlayerStatesForcedFields[psIdx][i];
 			if ( cctx->playerStateValidMask & ( 1 << i ) ) {
 				oldps = &cctx->playerStates[psIdx ^ 1][i];
+				oldpsff = &cctx->playerStatesForcedFields[psIdx ^ 1][i];
 				oldvps = &cctx->vehPlayerStates[psIdx ^ 1][i];
+				oldvpsff = &cctx->vehPlayerStatesForcedFields[psIdx ^ 1][i];
 			}
 			if ( oldps ) {
 		#ifdef _ONEBIT_COMBO
 				MSG_WriteDeltaPlayerstate( msg, &oldframe->ps, &frame->ps, frame->pDeltaOneBit, frame->pDeltaNumBit );
 		#else
 				MSG_WriteDeltaPlayerstate( msg, oldps, ps );
+				MSG_WriteDeltaForcedFields( msg, oldpsff, psff, qfalse );
 		#endif
 				if ( ps->m_iVehicleNum )
 				{ //then write the vehicle's playerstate too
@@ -434,7 +483,8 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 						MSG_WriteDeltaPlayerstate( msg, NULL, vps, NULL, NULL, qtrue );
 		#else
 						MSG_WriteDeltaPlayerstate( msg, NULL, vps, qtrue );
-		#endif
+						MSG_WriteDeltaForcedFields( msg, NULL, vps, qtrue );
+#endif
 					}
 					else
 					{
@@ -442,7 +492,8 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 						MSG_WriteDeltaPlayerstate( msg, &oldframe->vps, &frame->vps, frame->pDeltaOneBitVeh, frame->pDeltaNumBitVeh, qtrue );
 		#else
 						MSG_WriteDeltaPlayerstate( msg, oldvps, vps, qtrue );
-		#endif
+						MSG_WriteDeltaForcedFields( msg, oldvpsff, vpsff, qtrue );
+#endif
 					}
 				}
 			}
@@ -451,14 +502,16 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 				MSG_WriteDeltaPlayerstate( msg, NULL, &frame->ps, NULL, NULL );
 		#else
 				MSG_WriteDeltaPlayerstate( msg, NULL, ps );
-		#endif
+				MSG_WriteDeltaForcedFields( msg, NULL, psff, qfalse );
+#endif
 				if ( ps->m_iVehicleNum )
 				{ //then write the vehicle's playerstate too
 		#ifdef _ONEBIT_COMBO
 					MSG_WriteDeltaPlayerstate( msg, NULL, &frame->vps, NULL, NULL, qtrue );
 		#else
 					MSG_WriteDeltaPlayerstate( msg, NULL, vps, qtrue );
-		#endif
+					MSG_WriteDeltaForcedFields( msg, NULL, vps, qtrue );
+#endif
 				}
 			}
 		}
@@ -468,6 +521,13 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	SV_EmitPacketEntities( oldframe, frame, cctx->ent_owners[cctx->ent_owner_idx ^ 1], cctx->ent_owners[cctx->ent_owner_idx], msg );
 
 	MSG_WriteByte( msg, svc_EOF );
+
+	// write extra bytes as needed
+	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+		if ( cctx->matchedClients & ( 1 << i ) ) {
+			MSG_WriteByte( msg, cctx->messageExtraByte[i] );
+		}
+	}
 
 	CL_WriteDemoMessage( msg, 0, fp );
 }

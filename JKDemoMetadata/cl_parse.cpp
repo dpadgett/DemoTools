@@ -21,7 +21,7 @@ const char *svc_strings[256] = {
 };
 
 void SHOWNET( msg_t *msg, const char *s) {
-	if ( cl_shownet->integer >= 2) {
+	if ( cl_shownet->integer >= 2 ) {
 		Com_Printf ("%3i:%s\n", msg->readcount-1, s);
 	}
 }
@@ -46,7 +46,7 @@ void CL_ParseCommandString( msg_t *msg, qboolean firstServerCommandInMessage ) {
 		ctx->serverReliableAcknowledge = seq - 1;
 	}
 
-	if ( cl_shownet->integer >= 1 && ctx->clc.clientNum == 2 ) {
+	if ( cl_shownet->integer >= 1 /* && ctx->clc.clientNum == 2 */ ) {
 		Com_Printf( "Parsed server command %d: %s\n", seq, s );
 	}
 
@@ -115,7 +115,7 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 			}
 			s = MSG_ReadBigString( msg );
 
-			if (cl_shownet->integer >= 2 || qtrue)
+			if (cl_shownet->integer >= 2)
 			{
 				Com_Printf("%3i: %d: %s\n", start, i, s);
 			}
@@ -133,7 +133,6 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 		} else if ( cmd == svc_baseline ) {
 			int start = msg->readcount;
 			newnum = MSG_ReadBits( msg, GENTITYNUM_BITS );
-			Com_Printf( "baseline %3i: %d \n", start, newnum );
 			if ( newnum < 0 || newnum >= MAX_GENTITIES ) {
 				Com_Error( ERR_DROP, "Baseline number out of range: %i", newnum );
 			}
@@ -145,15 +144,11 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 		}
 	}
 
-	Com_Printf( "eof %3i\n", msg->readcount );
 	ctx->clc.clientNum = MSG_ReadLong(msg);
-	Com_Printf( "clientnum %3i: %d\n", msg->readcount, ctx->clc.clientNum );
 	// read the checksum feed
 	ctx->clc.checksumFeed = MSG_ReadLong( msg );
-	Com_Printf( "checksumFeed %3i: %d\n", msg->readcount, ctx->clc.checksumFeed );
 
 	CL_ParseRMG ( msg ); //rwwRMG - get info for it from the server
-	Com_Printf( "end of parse %3i of %3i\n", msg->readcount, msg->cursize );
 }
 
 /*
@@ -164,21 +159,29 @@ Parses deltas from the given base and adds the resulting entity
 to the current frame
 ==================
 */
+void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState_t* to, entityState_t* floatForced,
+	int number );
 void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame, int newnum, entityState_t *old,
 					 qboolean unchanged) {
-	entityState_t	*state;
+	entityState_t	*state, *floatForced;
 
 	// save the parsed entity state into the big circular buffer so
 	// it can be used as the source for a later delta
 	state = &ctx->cl.parseEntities[ctx->cl.parseEntitiesNum & (MAX_PARSE_ENTITIES-1)];
+	floatForced = &ctx->parseEntitiesFloatForced[ctx->cl.parseEntitiesNum & ( MAX_PARSE_ENTITIES - 1 )];
+
+	if ( frame->serverTime == 1370498 && newnum == 78 ) {
+		Com_Printf( "WTF8\n" );
+	}
 
 	if ( unchanged )
 	{
 		*state = *old;
+		Com_Memset( floatForced, 0, sizeof( *floatForced ) );
 	}
 	else
 	{
-		MSG_ReadDeltaEntity( msg, old, state, newnum );
+		MSG_ReadDeltaEntityWithFloats( msg, old, state, floatForced, newnum );
 	}
 
 	if ( state->number == (MAX_GENTITIES-1) ) {
@@ -234,6 +237,9 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 			if ( cl_shownet->integer == 3 ) {
 				Com_Printf ("%3i:  unchanged: %i\n", msg->readcount, oldnum);
 			}
+			if ( oldnum == 244 ) {
+				//Com_Printf( "%d 244 unchanged at %d deltanum %d\n", ctx->clc.clientNum, newframe->serverTime, newframe->messageNum - oldframe->messageNum );
+			}
 			CL_DeltaEntity( msg, newframe, oldnum, oldstate, qtrue );
 
 			oldindex++;
@@ -250,6 +256,9 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 			// delta from previous state
 			if ( cl_shownet->integer == 3 ) {
 				Com_Printf ("%3i:  delta: %i\n", msg->readcount, newnum);
+			}
+			if ( newnum == 244 ) {
+				//Com_Printf( "%d 244 delta at %d deltanum %d\n", ctx->clc.clientNum, newframe->serverTime, newframe->messageNum - oldframe->messageNum );
 			}
 			CL_DeltaEntity( msg, newframe, newnum, oldstate, qfalse );
 
@@ -270,6 +279,9 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 			if ( cl_shownet->integer == 3 ) {
 				Com_Printf ("%3i:  baseline: %i\n", msg->readcount, newnum);
 			}
+			if ( newnum == 244 ) {
+				//Com_Printf( "%d 244 baseline at %d deltanum %d\n", ctx->clc.clientNum, newframe->serverTime, oldframe == NULL ? -1 : newframe->messageNum - oldframe->messageNum );
+			}
 			CL_DeltaEntity( msg, newframe, newnum, &ctx->cl.entityBaselines[newnum], qfalse );
 			continue;
 		}
@@ -281,6 +293,9 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 		// one or more entities from the old packet are unchanged
 		if ( cl_shownet->integer == 3 ) {
 			Com_Printf ("%3i:  unchanged: %i\n", msg->readcount, oldnum);
+		}
+		if ( oldnum == 244 ) {
+			//Com_Printf( "%d 244 unchanged at %d deltanum %d\n", ctx->clc.clientNum, newframe->serverTime, newframe->messageNum - oldframe->messageNum );
 		}
 		CL_DeltaEntity( msg, newframe, oldnum, oldstate, qtrue );
 
@@ -305,6 +320,7 @@ cl.snap and saved in cl.snapshots[].  If the snapshot is invalid
 for any reason, no changes to the state will be made at all.
 ================
 */
+void MSG_ReadDeltaPlayerstateWithForcedFields( msg_t* msg, playerState_t* from, playerState_t* to, playerState_t* forcedFields, qboolean isVehiclePS );
 void CL_ParseSnapshot( msg_t *msg ) {
 	int			len;
 	clSnapshot_t	*old;
@@ -326,6 +342,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	newSnap.serverCommandNum = ctx->clc.serverCommandSequence;
 
 	newSnap.serverTime = MSG_ReadLong( msg );
+	SHOWNET( msg, va( "frame->serverTime %d", newSnap.serverTime ) );
 
 	// if we were just unpaused, we can only *now* really let the
 	// change come into effect or the client hangs.
@@ -334,12 +351,14 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	newSnap.messageNum = ctx->clc.serverMessageSequence;
 
 	deltaNum = MSG_ReadByte( msg );
+	SHOWNET( msg, va( "lastframe %d", deltaNum ) );
 	if ( !deltaNum ) {
 		newSnap.deltaNum = -1;
 	} else {
 		newSnap.deltaNum = newSnap.messageNum - deltaNum;
 	}
 	newSnap.snapFlags = MSG_ReadByte( msg );
+	SHOWNET( msg, va( "snapFlags %d", newSnap.snapFlags ) );
 
 	// If the frame is delta compressed from data that we
 	// no longer have available, we must suck up the rest of
@@ -384,21 +403,26 @@ void CL_ParseSnapshot( msg_t *msg ) {
 		return;
 	}
 
+	ctx->areabytes = len;
 	MSG_ReadData( msg, &newSnap.areamask, len);
+	SHOWNET( msg, va( "frame->areamask %d", len ) );
+
+	playerState_t* playerStateForcedFields = &ctx->playerStateForcedFields[newSnap.messageNum & PACKET_MASK];
+	playerState_t* vehPlayerStateForcedFields = &ctx->vehPlayerStateForcedFields[newSnap.messageNum & PACKET_MASK];
 
 	// read playerinfo
 	SHOWNET( msg, "playerstate" );
 	if ( old ) {
-		MSG_ReadDeltaPlayerstate( msg, &old->ps, &newSnap.ps );
+		MSG_ReadDeltaPlayerstateWithForcedFields( msg, &old->ps, &newSnap.ps, playerStateForcedFields, qfalse );
 		if (newSnap.ps.m_iVehicleNum)
 		{ //this means we must have written our vehicle's ps too
-			MSG_ReadDeltaPlayerstate( msg, &old->vps, &newSnap.vps, qtrue );
+			MSG_ReadDeltaPlayerstateWithForcedFields( msg, &old->vps, &newSnap.vps, vehPlayerStateForcedFields, qtrue );
 		}
 	} else {
-		MSG_ReadDeltaPlayerstate( msg, NULL, &newSnap.ps );
+		MSG_ReadDeltaPlayerstateWithForcedFields( msg, NULL, &newSnap.ps, playerStateForcedFields, qfalse );
 		if (newSnap.ps.m_iVehicleNum)
 		{ //this means we must have written our vehicle's ps too
-			MSG_ReadDeltaPlayerstate( msg, NULL, &newSnap.vps, qtrue );
+			MSG_ReadDeltaPlayerstateWithForcedFields( msg, NULL, &newSnap.vps, vehPlayerStateForcedFields, qtrue );
 		}
 	}
 
@@ -503,10 +527,12 @@ void CL_ParseServerMessage( msg_t *msg ) {
 
 		if ( cmd == svc_EOF) {
 			SHOWNET( msg, "END OF MESSAGE" );
-			while ( msg->readcount < msg->cursize ) {
-				Com_Printf( "Count: %x Size: %x\n", msg->readcount, msg->cursize );
-				int extraByte = MSG_ReadByte( msg );
-				Com_Printf( "Read: %c\n", extraByte );
+			int readBits = msg->bit & 7;
+			int mask = ( ( 1 << readBits ) - 1 );
+			mask ^= 0xff;
+			ctx->messageExtraByte = msg->data[msg->readcount - 1] & mask;
+			if ( cl_shownet->integer >= 3 ) {
+				Com_Printf( "extraByte: %d\n", ctx->messageExtraByte );
 			}
 			break;
 		}

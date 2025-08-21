@@ -17,7 +17,9 @@ typedef struct combinedDemoContext_s {
 	// which snap was delta'd from for each matched client
 	int deltasnap[MAX_CLIENTS];
 	playerState_t playerStates[2][MAX_CLIENTS];
+	playerState_t playerStatesForcedFields[2][MAX_CLIENTS];
 	playerState_t vehPlayerStates[2][MAX_CLIENTS];
+	playerState_t vehPlayerStatesForcedFields[2][MAX_CLIENTS];
 	// bitmask to determine current vs previous player states
 	int curPlayerStateIdxMask;
 	// 1 if the prev player state is set
@@ -26,11 +28,16 @@ typedef struct combinedDemoContext_s {
 	int initialServerReliableAcknowledge[MAX_CLIENTS];
 	int initialServerMessageSequence[MAX_CLIENTS];
 	int initialServerCommandSequence[MAX_CLIENTS];
+	byte initialMessageExtraByte[MAX_CLIENTS];
+	byte messageExtraByte[MAX_CLIENTS];
 	int reliableAcknowledgeIdxMask;
 	int reliableAcknowledge[2][MAX_CLIENTS];
 	int serverReliableAcknowledge[2][MAX_CLIENTS];
 	int lastServerMessageSequence[MAX_CLIENTS];
 	int serverMessageSequence[MAX_CLIENTS];
+	byte areamask[MAX_CLIENTS][MAX_MAP_AREA_BYTES];
+	entityState_t parseEntitiesFloatForced[MAX_PARSE_ENTITIES];
+	int snapFlags[MAX_CLIENTS];
 } combinedDemoContext_t;
 
 extern combinedDemoContext_t* cctx;

@@ -64,10 +64,12 @@ CL_ParsePacketEntities
 
 ==================
 */
+static entityState_t zeroEnt = {};
 void CL_DeltaEntity( msg_t* msg, clSnapshot_t* frame, int newnum, entityState_t* old, qboolean unchanged );
 void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapshot_t* newframe ) {
 	int			newnum;
 	entityState_t* oldstate;
+	entityState_t* oldfloatForced;
 	int			oldindex, oldnum;
 	int* owners = cctx->ent_owners[cctx->ent_owner_idx ^ 1];
 	int* prev_owners = cctx->ent_owners[cctx->ent_owner_idx];
@@ -80,6 +82,7 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 	// delta from the entities present in oldframe
 	oldindex = 0;
 	oldstate = NULL;
+	oldfloatForced = NULL;
 	if ( !oldframe ) {
 		oldnum = 99999;
 	}
@@ -89,6 +92,8 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 		}
 		else {
 			oldstate = &ctx->cl.parseEntities[
+				( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			oldfloatForced = &ctx->parseEntitiesFloatForced[
 				( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			oldnum = oldstate->number;
 		}
@@ -100,6 +105,9 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 	while ( 1 ) {
 		// read the entity index number
 		newnum = MSG_ReadBits( msg, GENTITYNUM_BITS );
+		if ( newframe->serverTime == 1370498 ) {
+			Com_Printf( "WTF7\n" );
+		}
 
 		if ( newnum == ( MAX_GENTITIES - 1 ) ) {
 			break;
@@ -115,6 +123,9 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 				Com_Printf( "%3i:  unchanged: %i\n", msg->readcount, oldnum );
 			}
 			CL_DeltaEntity( msg, newframe, oldnum, oldstate, qtrue );
+			int penum = ctx->cl.parseEntitiesNum - 1;
+			entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
+			*newfloatForced = *oldfloatForced;
 			owners[oldnum] = prev_owners[oldnum];
 
 			oldindex++;
@@ -125,6 +136,8 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			else {
 				oldstate = &ctx->cl.parseEntities[
 					( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+				oldfloatForced = &ctx->parseEntitiesFloatForced[
+					( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 				oldnum = oldstate->number;
 			}
 		}
@@ -133,17 +146,26 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			if ( cl_shownet->integer == 3 ) {
 				Com_Printf( "%3i:  delta: %i\n", msg->readcount, newnum );
 			}
+			int numEnts = newframe->numEntities;
 			CL_DeltaEntity( msg, newframe, newnum, oldstate, qfalse );
-			// read owner delta
-			int owner_delta = 0;
-			qboolean unchanged = MSG_ReadBits( msg, 1 ) == 0 ? qtrue : qfalse;
-			if ( !unchanged ) {
-				owner_delta = MSG_ReadLong( msg );
+			if ( newframe->numEntities == numEnts ) {
+				// it was a delta remove
+				owners[newnum] = 0;
+			} else {
+				int penum = ctx->cl.parseEntitiesNum - 1;
+				entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
+				MSG_ReadDeltaEntity( msg, oldfloatForced, newfloatForced, 0 );
+				// read owner delta
+				int owner_delta = 0;
+				qboolean unchanged = MSG_ReadBits( msg, 1 ) == 0 ? qtrue : qfalse;
+				if ( !unchanged ) {
+					owner_delta = MSG_ReadLong( msg );
+				}
+				if ( cl_shownet->integer >= 1 ) {
+					Com_Printf( "%d %d ", newnum, owner_delta );
+				}
+				owners[newnum] = prev_owners[newnum] ^ owner_delta;
 			}
-			if ( cl_shownet->integer >= 1 ) {
-				Com_Printf( "%d %d ", newnum, owner_delta );
-			}
-			owners[newnum] = prev_owners[newnum] ^ owner_delta;
 
 			oldindex++;
 
@@ -152,6 +174,8 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			}
 			else {
 				oldstate = &ctx->cl.parseEntities[
+					( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+				oldfloatForced = &ctx->parseEntitiesFloatForced[
 					( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 				oldnum = oldstate->number;
 			}
@@ -163,7 +187,16 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			if ( cl_shownet->integer == 3 ) {
 				Com_Printf( "%3i:  baseline: %i\n", msg->readcount, newnum );
 			}
+			int numEnts = newframe->numEntities;
 			CL_DeltaEntity( msg, newframe, newnum, &ctx->cl.entityBaselines[newnum], qfalse );
+			if ( newframe->numEntities == numEnts ) {
+				// this was a delta remove, so didn't send owners
+				owners[newnum] = 0;
+				continue;
+			}
+			int penum = ctx->cl.parseEntitiesNum - 1;
+			entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
+			MSG_ReadDeltaEntity( msg, &zeroEnt, newfloatForced, 0 );
 			// read owner delta
 			int owner_delta = 0;
 			qboolean unchanged = MSG_ReadBits( msg, 1 ) == 0 ? qtrue : qfalse;
@@ -186,6 +219,9 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			Com_Printf( "%3i:  unchanged: %i\n", msg->readcount, oldnum );
 		}
 		CL_DeltaEntity( msg, newframe, oldnum, oldstate, qtrue );
+		int penum = ctx->cl.parseEntitiesNum - 1;
+		entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
+		*newfloatForced = *oldfloatForced;
 		owners[oldnum] = prev_owners[oldnum];
 
 		oldindex++;
@@ -195,6 +231,8 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 		}
 		else {
 			oldstate = &ctx->cl.parseEntities[
+				( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			oldfloatForced = &ctx->parseEntitiesFloatForced[
 				( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			oldnum = oldstate->number;
 		}
@@ -238,7 +276,7 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 
 	cctx->matchedClients = MSG_ReadLong( msg );
 	// read original delta frame for each match
-	for ( int i = 0; i < MAX_CLIENTS; i++ ) {
+	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
 		if ( cctx->matchedClients & ( 1 << i ) ) {
 			int deltaNum = MSG_ReadByte( msg );
 			cctx->deltasnap[i] = deltaNum;
@@ -262,7 +300,21 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 	else {
 		newSnap.deltaNum = newSnap.messageNum - deltaNum;
 	}
-	newSnap.snapFlags = MSG_ReadByte( msg );
+	bool snapFlagsIdentical = MSG_ReadBits( msg, 1 );
+	newSnap.snapFlags = snapFlagsIdentical ? MSG_ReadByte( msg ) : -1;
+	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+		if ( cctx->matchedClients & ( 1 << i ) ) {
+			if ( snapFlagsIdentical ) {
+				cctx->snapFlags[i] = newSnap.snapFlags;
+			} else {
+				cctx->snapFlags[i] = MSG_ReadByte( msg );
+				if ( newSnap.snapFlags == -1 ) {
+					newSnap.snapFlags = cctx->snapFlags[i];
+				}
+			}
+		}
+	}
+	
 
 	// If the frame is delta compressed from data that we
 	// no longer have available, we must suck up the rest of
@@ -311,24 +363,39 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 		return;
 	}
 
-	MSG_ReadData( msg, &newSnap.areamask, len );
+	ctx->areabytes = len;
+	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+		if ( cctx->matchedClients & ( 1 << i ) ) {
+			MSG_ReadData( msg, &cctx->areamask[i], len );
+		}
+	}
 
 	// read playerinfo
 	SHOWNET( msg, "playerstate" );
 	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
 		if ( cctx->matchedClients & ( 1 << i ) ) {
 			playerState_t* ps = NULL, * oldps = NULL, * vps = NULL, * oldvps = NULL;
+			playerState_t* psff = NULL, * oldpsff = NULL, * vpsff = NULL, * oldvpsff = NULL;
 			int psIdx = cctx->curPlayerStateIdxMask & ( 1 << i ) ? 0 : 1;
 			ps = &cctx->playerStates[psIdx][i];
+			psff = &cctx->playerStatesForcedFields[psIdx][i];
 			vps = &cctx->vehPlayerStates[psIdx][i];
+			vpsff = &cctx->vehPlayerStatesForcedFields[psIdx][i];
 			if ( cctx->playerStateValidMask & ( 1 << i ) ) {
 				oldps = &cctx->playerStates[psIdx ^ 1][i];
+				oldpsff = &cctx->playerStatesForcedFields[psIdx ^ 1][i];
 				oldvps = &cctx->vehPlayerStates[psIdx ^ 1][i];
+				oldvpsff = &cctx->vehPlayerStatesForcedFields[psIdx ^ 1][i];
 			}
 			MSG_ReadDeltaPlayerstate( msg, oldps, ps );
+			MSG_ReadDeltaPlayerstate( msg, oldpsff, psff );
+			if ( oldps && oldps->commandTime == 765062 ) {
+				Com_Printf( "WTF6?\n" );
+			}
 			if ( ps->m_iVehicleNum )
 			{ //this means we must have written our vehicle's ps too
 				MSG_ReadDeltaPlayerstate( msg, oldvps, vps, qtrue );
+				MSG_ReadDeltaPlayerstate( msg, oldvpsff, vpsff, qtrue );
 			}
 			cctx->curPlayerStateIdxMask ^= ( 1 << i );
 			cctx->playerStateValidMask |= ( 1 << i );
@@ -443,7 +510,7 @@ void CL_ParseMergedGamestate( msg_t* msg ) {
 
 	// a gamestate always marks a server command sequence
 	//ctx->clc.serverCommandSequence = MSG_ReadLong( msg );
-	ctx->clc.serverCommandSequence = 0;
+	ctx->clc.serverCommandSequence = -1;
 	cctx->initialServerReliableAcknowledgeMask = MSG_ReadLong( msg );
 	for ( int i = 0; i < MAX_CLIENTS; i++ ) {
 		if ( cctx->initialServerReliableAcknowledgeMask & ( 1 << i ) ) {
@@ -559,6 +626,20 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 
 		if ( cmd == svc_EOF ) {
 			SHOWNET( msg, "END OF MESSAGE" );
+			int matchedMask = cctx->matchedClients;
+			if ( matchedMask == 0 ) {
+				matchedMask = cctx->initialServerReliableAcknowledgeMask;
+			}
+			for ( int i = 0; ( 1 << i ) <= matchedMask; i++ ) {
+				if ( matchedMask & ( 1 << i ) ) {
+					int extraByte = MSG_ReadByte( msg );
+					cctx->messageExtraByte[i] = extraByte;
+					if ( !ctx->cl.newSnapshots ) {
+						// gamestate
+						cctx->initialMessageExtraByte[i] = extraByte;
+					}
+				}
+			}
 			break;
 		}
 
@@ -698,9 +779,14 @@ int ParseTime( char *timeStr ) {
 }
 
 
+typedef struct entityAndFloat_s {
+	entityState_t* ent;
+	entityState_t floatForced;
+} entityAndFloat_t;
+
 typedef struct snapshotEntityNumbers_s {
 	int				numSnapshotEntities;
-	entityState_t *	snapshotEntities[MAX_SNAPSHOT_ENTITIES];
+	entityAndFloat_t	snapshotEntities[MAX_SNAPSHOT_ENTITIES];
 } snapshotEntityNumbers_t;
 
 /*
@@ -708,11 +794,11 @@ typedef struct snapshotEntityNumbers_s {
 SV_QsortEntityNumbers
 =======================
 */
-static int QDECL SV_QsortEntityNumbers( const void *a, const void *b ) {
+static int QDECL SV_QsortEntityNumbers( const void* a, const void* b ) {
 	int ea, eb;
 
-	ea = (*(entityState_t **)a)->number;
-	eb = (*(entityState_t **)b)->number;
+	ea = ( (entityAndFloat_t*) a )->ent->number;
+	eb = ( (entityAndFloat_t*) b )->ent->number;
 
 	if ( ea == eb ) {
 		Com_Error( ERR_DROP, "SV_QsortEntityStates: duplicated entity" );
@@ -731,16 +817,19 @@ static int QDECL SV_QsortEntityNumbers( const void *a, const void *b ) {
 SV_AddEntToSnapshot
 ===============
 */
-static void SV_AddEntToSnapshot( entityState_t *ent, snapshotEntityNumbers_t *eNums, qboolean overwrite = qfalse ) {
+static void SV_AddEntToSnapshot( entityState_t *ent, entityState_t *floatForced, snapshotEntityNumbers_t *eNums, qboolean overwrite = qfalse ) {
 	// if we have already added this entity to this snapshot, don't add again
 	/*if ( svEnt->snapshotCounter == sv.snapshotCounter ) {
 		return;
 	}
 	svEnt->snapshotCounter = sv.snapshotCounter;*/
+	if ( cl_shownet->integer == 3 && ent->number == 7 ) {
+		Com_Printf( "pos.trDelta[1]: %f [%d]\n", ent->pos.trDelta[1], *(int*) &ent->pos.trDelta[1] );
+	}
 	for ( int idx = 0; idx < eNums->numSnapshotEntities; idx++ ) {
-		if ( eNums->snapshotEntities[idx]->number == ent->number ) {
+		if ( eNums->snapshotEntities[idx].ent->number == ent->number ) {
 			if ( overwrite ) {
-				eNums->snapshotEntities[idx] = ent;
+				eNums->snapshotEntities[idx] = { ent, *floatForced };
 			}
 			return;
 		}
@@ -751,7 +840,7 @@ static void SV_AddEntToSnapshot( entityState_t *ent, snapshotEntityNumbers_t *eN
 		return;
 	}
 
-	eNums->snapshotEntities[ eNums->numSnapshotEntities ] = ent;
+	eNums->snapshotEntities[eNums->numSnapshotEntities] = { ent, *floatForced };
 	eNums->numSnapshotEntities++;
 }
 
@@ -802,6 +891,16 @@ qboolean BG_InKnockDownOnly( int anim )
 	}
 	return qfalse;
 }
+
+typedef struct netField_s {
+	const char* name;
+	size_t	offset;
+	int		bits;		// 0 = float
+#ifndef FINAL_BUILD
+	unsigned	mCount;
+#endif
+} netField_t;
+extern netField_t entityStateFields[];
 
 static combinedDemoContext_t mergedCtx;
 combinedDemoContext_t* cctx = &mergedCtx;
@@ -967,6 +1066,7 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 			memcpy( entry.ctx->cl.gameState.stringOffsets, ctx->cl.gameState.stringOffsets, sizeof( ctx->cl.gameState.stringOffsets ) );
 			memcpy( entry.ctx->cl.entityBaselines, ctx->cl.entityBaselines, sizeof( ctx->cl.entityBaselines ) );
 			entry.ctx->clc.checksumFeed = ctx->clc.checksumFeed;
+			entry.ctx->messageExtraByte = cctx->initialMessageExtraByte[clientnum];
 			ctx = entry.ctx;
 			writeDemoHeaderWithServerCommands( outFile, cctx->initialServerReliableAcknowledge[clientnum], cctx->initialServerCommandSequence[clientnum], serverCommandOffset );
 			ctx = &cctx->ctx;
@@ -1046,7 +1146,7 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 		clSnapshot_t snap;
 		memset( &snap, 0, sizeof( snap ) );
 		snap.parseEntitiesNum = entry.ctx->cl.parseEntitiesNum; //ctx->cl.parseEntitiesNum;
-		snap.snapFlags = ctx->cl.snap.snapFlags; // &SNAPFLAG_SERVERCOUNT;
+		snap.snapFlags = cctx->snapFlags[clientnum]; // &SNAPFLAG_SERVERCOUNT;
 
 		// generate snap.  follows similar logic in sv_snapshot.cc:SV_BuildClientSnapshot
 		{
@@ -1079,7 +1179,17 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 					if ( !( owners[ent->number] & ( 1 << clientnum ) ) ) {
 						continue;
 					}
-					SV_AddEntToSnapshot( ent, &entityNumbers );
+					entityState_t floatForced = ctx->parseEntitiesFloatForced[entIdx & ( MAX_PARSE_ENTITIES - 1 )];
+					for ( int i = 0; i < ( sizeof( entityState_t ) / 4 ) - 1; i++ ) {
+						netField_t* field = &entityStateFields[i];
+						int* toF = (int*) ( (byte*) &floatForced + field->offset );
+						if ( *toF & ( 1 << clientnum ) ) {
+							*toF = 1;
+						} else {
+							*toF = 0;
+						}
+					}
+					SV_AddEntToSnapshot( ent, &floatForced, &entityNumbers );
 				}
 		//		//BG_PlayerStateToEntityStateExtraPolate( &dsnap->ps, &dentity[idx], dsnap->ps.commandTime, qfalse );
 		//		// this pains me to do but it bugs the ui, which tries to display a health meter for these players
@@ -1096,6 +1206,9 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 
 				int psIdx = cctx->curPlayerStateIdxMask & ( 1 << clientnum ) ? 1 : 0;
 				snap.ps = cctx->playerStates[psIdx][clientnum];
+				entry.ctx->playerStateForcedFields[entry.ctx->clc.serverMessageSequence & PACKET_MASK] = cctx->playerStatesForcedFields[psIdx][clientnum];
+				snap.vps = cctx->vehPlayerStates[psIdx][clientnum];
+				entry.ctx->vehPlayerStateForcedFields[entry.ctx->clc.serverMessageSequence & PACKET_MASK] = cctx->vehPlayerStatesForcedFields[psIdx][clientnum];
 
 		//		matchesMask |= 1 << entryList[idx].ctx->clc.clientNum;
 		//	}
@@ -1124,10 +1237,13 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 			// copy the entity states out
 			frame->numEntities = 0;
 			for ( int i = 0 ; i < entityNumbers.numSnapshotEntities ; i++ ) {
-				entityState_t *ent = entityNumbers.snapshotEntities[i];
+				entityState_t *ent = entityNumbers.snapshotEntities[i].ent;
+				entityState_t* floatForced = &entityNumbers.snapshotEntities[i].floatForced;
 				entityState_t *state = &entry.ctx->cl.parseEntities[entry.ctx->cl.parseEntitiesNum % MAX_PARSE_ENTITIES];
+				entityState_t *floatForcedState = &entry.ctx->parseEntitiesFloatForced[entry.ctx->cl.parseEntitiesNum % MAX_PARSE_ENTITIES];
 				entry.ctx->cl.parseEntitiesNum++;
 				*state = *ent;
+				*floatForcedState = *floatForced;
 				// this should never hit, map should always be restarted first in SV_Frame
 				if ( entry.ctx->cl.parseEntitiesNum >= 0x7FFFFFFE ) {
 					Com_Error(ERR_FATAL, "entry.ctx->cl.parseEntitiesNum wrapped");
@@ -1148,9 +1264,13 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 			int raIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 0 : 1;
 			firstServerCommand = cctx->serverReliableAcknowledge[raIdx][clientnum] + 1;
 		}
+		Com_Memcpy( snap.areamask, cctx->areamask[clientnum], ctx->areabytes );
+		entry.ctx->areabytes = ctx->areabytes;
 
 		//// copy new snap into structs
 		entry.ctx->cl.snap = entry.ctx->cl.snapshots[snap.messageNum & PACKET_MASK] = snap;
+
+		entry.ctx->messageExtraByte = cctx->messageExtraByte[clientnum];
 
 		if ( framesSaved > 0 ) {
 			ctx = entry.ctx;
@@ -1163,6 +1283,13 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 			ctx = &cctx->ctx;
 			// copy rest
 			framesSaved = 1;
+		}
+		if ( framesSaved >= 7 ) {
+			//break;
+		}
+		if ( ftell( outFile ) >= 0x000555a0 ) {
+			//Com_Printf( "At different point\n" );
+			//cl_shownet->integer = 3;
 		}
 
 		//printf( "Wrote frame at time %d [%d:%02d.%04d]\n", ctx->cl.snap.serverTime, getCurrentTime() / 1000 / 60, (getCurrentTime() / 1000) % 60, getCurrentTime() % 1000 );
@@ -1208,7 +1335,7 @@ advanceLoop:
 		fclose( metaFile );
 	}
 
-	system("PAUSE");
+	//system("PAUSE");
 
 	return 0;
 }
