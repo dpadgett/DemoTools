@@ -314,6 +314,8 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		return -1;
 	}
 
+	Com_Memset( &mergedCtx, 0, sizeof( mergedCtx ) );
+
 	qboolean demoFinished = qfalse;
 	int idx;
 	for ( idx = 0; idx < numDemos; idx++ ) {
@@ -325,7 +327,6 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 	// start with a base ctx
 	// should be the earliest one to pick up earliest configstrings
 	// note this could actually be wrong cuz sometimes serverTime resets on map restart
-	Com_Memset( &mergedCtx, 0, sizeof( mergedCtx ) );
 	{
 		int minTime = entryList[0].ctx->cl.snap.serverTime;
 		int minIdx = 0;

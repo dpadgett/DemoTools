@@ -150,6 +150,18 @@ void writeDemoHeaderWithServerCommands( FILE* fp, int reliableAcknowledge, int s
 	// finished writing the client packet
 	MSG_WriteByte( &buf, svc_EOF );
 
+	msg_t* msg = &buf;
+	if ( ( msg->bit & 7 ) == 0 ) {
+		// to accomodate bits that aren't byte aligned, the message always sends a partial last byte.
+		// when bit is byte aligned, the last byte hasn't been written to yet and isn't initialized to zero.
+		// init to zero here.
+		//Com_Printf( "Byte aligned, setting next byte to zero\n" );
+		byte data = msg->data[msg->cursize];
+		data = msg->data[msg->cursize - 1];
+		data = msg->data[msg->cursize - 2];
+		msg->data[msg->cursize - 1] = ctx->messageExtraByte;
+	}
+
 	// write it to the demo file
 	len = LittleLong( ctx->clc.serverMessageSequence - 1 );
 	fwrite( &len, 1, 4, fp );
