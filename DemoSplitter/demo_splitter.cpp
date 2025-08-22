@@ -489,6 +489,23 @@ void CL_ParseMergedCommandString( msg_t* msg, qboolean firstServerCommandInMessa
 }
 
 
+void CL_ParseDemoMetadata( msg_t* msg ) {
+	cctx->numDemos = MSG_ReadByte( msg );
+	cctx->demos = (demoMetadata_t *) calloc( cctx->numDemos, sizeof( *cctx->demos ) );
+
+	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
+		demoMetadata_t* demo = &cctx->demos[idx];
+		Q_strncpyz( demo->filename, MSG_ReadString( msg ), sizeof( demo->filename ) );
+		demo->fileMtime = MSG_ReadLong( msg );
+		demo->clientnum = MSG_ReadByte( msg );
+		demo->firstFrameTime = MSG_ReadLong( msg );
+		demo->initialServerReliableAcknowledge = MSG_ReadLong( msg );
+		demo->initialServerMessageSequence = MSG_ReadLong( msg );
+		demo->initialServerCommandSequence = MSG_ReadLong( msg );
+		demo->initialMessageExtraByte = MSG_ReadByte( msg );
+	}
+}
+
 /*
 ==================
 CL_ParseGamestate
@@ -511,14 +528,6 @@ void CL_ParseMergedGamestate( msg_t* msg ) {
 	// a gamestate always marks a server command sequence
 	//ctx->clc.serverCommandSequence = MSG_ReadLong( msg );
 	ctx->clc.serverCommandSequence = -1;
-	cctx->initialServerReliableAcknowledgeMask = MSG_ReadLong( msg );
-	for ( int i = 0; i < MAX_CLIENTS; i++ ) {
-		if ( cctx->initialServerReliableAcknowledgeMask & ( 1 << i ) ) {
-			cctx->initialServerReliableAcknowledge[i] = MSG_ReadLong( msg );
-			cctx->initialServerMessageSequence[i] = MSG_ReadLong( msg );
-			cctx->initialServerCommandSequence[i] = MSG_ReadLong( msg );
-		}
-	}
 
 	// parse all the configstrings and baselines
 	ctx->cl.gameState.dataCount = 1;	// leave a 0 at the beginning for uninitialized configstrings
@@ -582,7 +591,6 @@ void CL_ParseMergedGamestate( msg_t* msg ) {
 CL_ParseServerMessage
 =====================
 */
-void CL_ParseGamestate( msg_t* msg );
 void CL_ParseSetGame( msg_t* msg );
 void CL_ParseDownload( msg_t* msg );
 void CL_ParseMergedServerMessage( msg_t* msg ) {
@@ -627,17 +635,13 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 		if ( cmd == svc_EOF ) {
 			SHOWNET( msg, "END OF MESSAGE" );
 			int matchedMask = cctx->matchedClients;
-			if ( matchedMask == 0 ) {
-				matchedMask = cctx->initialServerReliableAcknowledgeMask;
+			if ( !ctx->cl.newSnapshots || matchedMask == 0 ) {
+				break;
 			}
 			for ( int i = 0; ( 1 << i ) <= matchedMask; i++ ) {
 				if ( matchedMask & ( 1 << i ) ) {
 					int extraByte = MSG_ReadByte( msg );
 					cctx->messageExtraByte[i] = extraByte;
-					if ( !ctx->cl.newSnapshots ) {
-						// gamestate
-						cctx->initialMessageExtraByte[i] = extraByte;
-					}
 				}
 			}
 			break;
@@ -678,6 +682,9 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 		case svc_mapchange:
 			//if ( cls.cgameStarted )
 			//	CGVM_MapChange();
+			break;
+		case svc_demometadata:
+			CL_ParseDemoMetadata( msg );
 			break;
 		}
 	}
@@ -950,17 +957,30 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 		printf( "Failed to parse demo context for demo %s\n", entry.filename );
 		return -1;
 	}
-	entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = cctx->initialServerReliableAcknowledge[clientnum] + 1;  // TODO: right offset,  entry.firstServerCommand;
-	entry.ctx->serverReliableAcknowledge = cctx->initialServerReliableAcknowledge[clientnum];
+	demoMetadata_t* demo = NULL;
+	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
+		if ( cctx->demos[idx].clientnum == clientnum ) {
+			if ( demo != NULL ) {
+				Com_Error( ERR_FATAL, "Multiple demos from client %d exist! Found: %s\n", clientnum, cctx->demos[idx].filename );
+			}
+			demo = &cctx->demos[idx];
+			Com_Printf( "Found demo: %s\n", demo->filename );
+		}
+	}
+	if ( demo == NULL ) {
+		Com_Error( ERR_FATAL, "No demo from client %d exists!\n", clientnum );
+	}
+	entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->initialServerReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
+	entry.ctx->serverReliableAcknowledge = demo->initialServerReliableAcknowledge;
 	entry.ctx->clc.serverCommandSequence--;
-	entry.ctx->clc.serverMessageSequence = cctx->initialServerMessageSequence[clientnum];
+	entry.ctx->clc.serverMessageSequence = demo->initialServerMessageSequence;
 	ctx = &mergedCtx.ctx;
 	int serverCommandOffset = 0;
 	int framesSaved = 0;
 	int firstMissingFrame = -1;
 	json_t *missingFrames = json_array();
 	while ( true ) {
-		if ( !(cctx->matchedClients & ( 1 << clientnum )) ) {
+		if ( ctx->cl.snap.serverTime < demo->firstFrameTime || !(cctx->matchedClients & ( 1 << clientnum )) ) {
 			goto advanceLoop;
 		}
 		//// find frame time
@@ -1066,9 +1086,9 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 			memcpy( entry.ctx->cl.gameState.stringOffsets, ctx->cl.gameState.stringOffsets, sizeof( ctx->cl.gameState.stringOffsets ) );
 			memcpy( entry.ctx->cl.entityBaselines, ctx->cl.entityBaselines, sizeof( ctx->cl.entityBaselines ) );
 			entry.ctx->clc.checksumFeed = ctx->clc.checksumFeed;
-			entry.ctx->messageExtraByte = cctx->initialMessageExtraByte[clientnum];
+			entry.ctx->messageExtraByte = demo->initialMessageExtraByte;
 			ctx = entry.ctx;
-			writeDemoHeaderWithServerCommands( outFile, cctx->initialServerReliableAcknowledge[clientnum], cctx->initialServerCommandSequence[clientnum], serverCommandOffset );
+			writeDemoHeaderWithServerCommands( outFile, demo->initialServerReliableAcknowledge, demo->initialServerCommandSequence, serverCommandOffset );
 			ctx = &cctx->ctx;
 		}
 

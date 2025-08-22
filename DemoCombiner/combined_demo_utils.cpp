@@ -24,45 +24,29 @@ void writeMergedDemoHeader( FILE* fp ) {
 	MSG_Bitstream( &buf );
 
 	// NOTE, MRE: all server->client messages now acknowledge
-	int reliableAcknowledgeMask = cctx->matchedClients;
-	for ( int i = 0; ( 1 << i ) <= reliableAcknowledgeMask; i++ ) {
-		if ( reliableAcknowledgeMask & ( 1 << i ) ) {
-			int psIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << i ) ? 0 : 1;
-			int prev = cctx->reliableAcknowledge[psIdx ^ 1][i];
-			int cur = cctx->reliableAcknowledge[psIdx][i];
-			if ( cur == prev ) {
-				// no change, skip
-				reliableAcknowledgeMask ^= ( 1 << i );
-			}
-		}
-	}
+	// for gamestate message, reliableAcknowledge is transmitted differently
+	int reliableAcknowledgeMask = 0;
 	MSG_WriteLong( &buf, reliableAcknowledgeMask );
-	for ( int i = 0; ( 1 << i ) <= reliableAcknowledgeMask; i++ ) {
-		if ( reliableAcknowledgeMask & ( 1 << i ) ) {
-			int psIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << i ) ? 0 : 1;
-			int *prev = &cctx->reliableAcknowledge[psIdx ^ 1][i];
-			int cur = cctx->reliableAcknowledge[psIdx][i];
-			MSG_WriteLong( &buf, cur - *prev );
-			*prev = cur;  // hack since we write a snap message after this
-		}
-	}
 	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
+
+	// write the demo file metadata for each demo combined
+	MSG_WriteByte( &buf, svc_demometadata );
+	MSG_WriteByte( &buf, cctx->numDemos );
+	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
+		demoMetadata_t* demo = &cctx->demos[idx];
+		MSG_WriteString( &buf, demo->filename );
+		MSG_WriteLong( &buf, demo->fileMtime );
+		MSG_WriteByte( &buf, demo->clientnum );
+		MSG_WriteLong( &buf, demo->firstFrameTime );
+		MSG_WriteLong( &buf, demo->initialServerReliableAcknowledge );
+		MSG_WriteLong( &buf, demo->initialServerMessageSequence );
+		MSG_WriteLong( &buf, demo->initialServerCommandSequence );
+		MSG_WriteByte( &buf, demo->initialMessageExtraByte );
+	}
 
 	MSG_WriteByte( &buf, svc_gamestate );
 	// hack - subtract out - MAX_RELIABLE_COMMANDS + 1 from command sequence so it still executes commands from first snapshot
 	//MSG_WriteLong( &buf, ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 1 );
-	// new hack - write the serverReliableAcknowledge in the gamestate for all clients, even if they don't appear in the first snapshot
-	// works since we parse the first gamestate and snapshot of each client at the beginning?
-	// actually not quite - we only copied it in if it's a matched client.  need to fix that.
-	int mask = cctx->initialServerReliableAcknowledgeMask;
-	MSG_WriteLong( &buf, mask );
-	for ( int i = 0; ( 1 << i ) <= mask; i++ ) {
-		if ( mask & ( 1 << i ) ) {
-			MSG_WriteLong( &buf, cctx->initialServerReliableAcknowledge[i] );
-			MSG_WriteLong( &buf, cctx->initialServerMessageSequence[i] );
-			MSG_WriteLong( &buf, cctx->initialServerCommandSequence[i] );
-		}
-	}
 
 	// configstrings
 	for ( i = 0; i < MAX_CONFIGSTRINGS; i++ ) {
@@ -130,13 +114,6 @@ void writeMergedDemoHeader( FILE* fp ) {
 
 	// finished writing the client packet
 	MSG_WriteByte( &buf, svc_EOF );
-
-	// write extra bytes as needed
-	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
-		if ( cctx->matchedClients & ( 1 << i ) ) {
-			MSG_WriteByte( &buf, cctx->initialMessageExtraByte[i] );
-		}
-	}
 
 	// write it to the demo file
 	len = LittleLong( ctx->clc.serverMessageSequence - 1 );

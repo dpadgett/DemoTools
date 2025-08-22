@@ -14,6 +14,17 @@
 #include <fcntl.h>
 #endif
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#ifndef WIN32
+#include <unistd.h>
+#endif
+
+#ifdef WIN32
+#define stat _stat
+#endif
+
+
 typedef struct {
 	char filename[MAX_OSPATH];
 	fileHandle_t fp;
@@ -23,10 +34,11 @@ typedef struct {
 	int currentMap;
 	qboolean eos;
 	// for server commands sent in the gamestate message, since we only loop on snaps
-	int gamestateServerReliableAcknowledge;
-	int gamestateServerCommandSequence;
+	//int gamestateServerReliableAcknowledge;
+	//int gamestateServerCommandSequence;
 	// idx of merged server command seq where the last server cmd from this demo was
 	int serverCommandSyncIdx;
+	demoMetadata_t* metadata;
 } demoEntry_t;
 
 void FreeMsg( msg_t *msg ) {
@@ -51,6 +63,7 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 	if ( ctx->cl.snap.valid ) {
 		entityEventSequence = ctx->cl.snap.ps.entityEventSequence;
 	}
+	ctx->cl.newSnapshots = qfalse;
 	while ( ( msg = ReadNextMessageRaw( demo ) ) != nullptr ) {
 		int lastSnapFlags = ctx->cl.snap.snapFlags;
 		qboolean lastSnapValid = ctx->cl.snap.valid;
@@ -63,9 +76,11 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		}
 
 		if ( !ctx->cl.newSnapshots ) {
-			demo->gamestateServerReliableAcknowledge = ctx->serverReliableAcknowledge;
-			demo->gamestateServerCommandSequence = ctx->clc.serverCommandSequence;
-			cctx->initialMessageExtraByte[ctx->clc.clientNum] = ctx->messageExtraByte;
+			demo->metadata->clientnum = ctx->clc.clientNum;
+			demo->metadata->initialServerMessageSequence = ctx->clc.serverMessageSequence;
+			demo->metadata->initialServerReliableAcknowledge = ctx->serverReliableAcknowledge;
+			demo->metadata->initialServerCommandSequence = ctx->clc.serverCommandSequence;
+			demo->metadata->initialMessageExtraByte = ctx->messageExtraByte;
 			FreeMsg( msg );
 			continue;
 		}
@@ -73,8 +88,8 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		if ( lastSnapValid && ( ( lastSnapFlags ^ ctx->cl.snap.snapFlags ) & SNAPFLAG_SERVERCOUNT ) != 0 ) {
 			demo->currentMap++;
 		}
-		if ( ctx->clc.lastExecutedServerCommand == 0 && demo->gamestateServerCommandSequence > 0 ) {
-			ctx->clc.lastExecutedServerCommand = demo->gamestateServerReliableAcknowledge + 1;
+		if ( ctx->clc.lastExecutedServerCommand == 0 && demo->metadata->initialServerCommandSequence > 0 ) {
+			ctx->clc.lastExecutedServerCommand = demo->metadata->initialServerReliableAcknowledge + 1;
 		}
 		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_RELIABLE_COMMANDS ) {
 			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10; // fudge factor
@@ -110,6 +125,7 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 	// load initial state from demo
 	msg_t *msg;
 	if ( ( msg = ReadNextMessage( demo ) ) != nullptr ) {
+		demo->metadata->firstFrameTime = ctx->cl.snap.serverTime;
 		ctx = oldCtx;
 		FreeMsg( msg );
 		return qtrue;
@@ -281,10 +297,20 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 	cl_shownet->integer = 0;
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
 
+	Com_Memset( &mergedCtx, 0, sizeof( mergedCtx ) );
+
 	demoEntry_t *entryList = (demoEntry_t *) calloc( numDemos, sizeof( demoEntry_t ) );
+	mergedCtx.demos = (demoMetadata_t*) calloc( numDemos, sizeof( demoMetadata_t ) );
+	mergedCtx.numDemos = numDemos;
 	{ // debugger fucks up idx without this
 		for ( int idx = 0; idx < numDemos; idx++ ) {
 			Q_strncpyz( entryList[idx].filename, demos[idx], sizeof( entryList[idx].filename ) );
+			Q_strncpyz( mergedCtx.demos[idx].filename, demos[idx], sizeof( mergedCtx.demos[idx].filename ) );
+			struct stat result;
+			if ( stat( demos[idx], &result ) == 0 ) {
+				mergedCtx.demos[idx].fileMtime = result.st_mtime;
+			}
+			entryList[idx].metadata = &mergedCtx.demos[idx];
 			FS_FOpenFileRead( entryList[idx].filename, &entryList[idx].fp, qfalse );
 			if ( !entryList[idx].fp ) {
 				printf( "Failed to open file %s\n", entryList[idx].filename );
@@ -313,8 +339,6 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		printf( "Couldn't open output file\n" );
 		return -1;
 	}
-
-	Com_Memset( &mergedCtx, 0, sizeof( mergedCtx ) );
 
 	qboolean demoFinished = qfalse;
 	int idx;
@@ -357,10 +381,6 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 				frameTime = entryList[idx].ctx->cl.snap.serverTime;
 				frameIdx = idx;
 			}
-			cctx->initialServerReliableAcknowledge[entryList[idx].ctx->clc.clientNum] = entryList[idx].ctx->serverReliableAcknowledge;
-			cctx->initialServerMessageSequence[entryList[idx].ctx->clc.clientNum] = entryList[idx].ctx->clc.serverMessageSequence - 1;
-			cctx->initialServerCommandSequence[entryList[idx].ctx->clc.clientNum] = entryList[idx].gamestateServerCommandSequence;
-			cctx->initialServerReliableAcknowledgeMask |= ( 1 << entryList[idx].ctx->clc.clientNum );
 		}
 		if ( frameIdx == -1 ) {
 			ctx = &mergedCtx.ctx;
@@ -478,7 +498,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					// insert it at index curCommand
 					ctx->clc.serverCommandSequence++;
 					ctx->clc.lastExecutedServerCommand++;
-					if ( commandNum <= entryList[idx].gamestateServerCommandSequence && framesSaved == 0 ) {
+					if ( commandNum <= entryList[idx].metadata->initialServerCommandSequence && framesSaved == 0 ) {
 						// don't execute this one, it arrived with the gamestate
 						firstServerCommandToExecute++;
 						if ( curCommand >= firstServerCommandToExecute ) {
