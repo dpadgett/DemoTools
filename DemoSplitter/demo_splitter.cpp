@@ -66,6 +66,8 @@ CL_ParsePacketEntities
 */
 static entityState_t zeroEnt = {};
 void CL_DeltaEntity( msg_t* msg, clSnapshot_t* frame, int newnum, entityState_t* old, qboolean unchanged );
+void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState_t* to, entityState_t* floatForced,
+	int number, qboolean isFloatForced );
 void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapshot_t* newframe ) {
 	int			newnum;
 	entityState_t* oldstate;
@@ -154,7 +156,7 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			} else {
 				int penum = ctx->cl.parseEntitiesNum - 1;
 				entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
-				MSG_ReadDeltaEntity( msg, oldfloatForced, newfloatForced, 0 );
+				MSG_ReadDeltaEntityWithFloats( msg, oldfloatForced, newfloatForced, NULL, 0, qtrue );
 				// read owner delta
 				int owner_delta = 0;
 				qboolean unchanged = MSG_ReadBits( msg, 1 ) == 0 ? qtrue : qfalse;
@@ -196,7 +198,7 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			}
 			int penum = ctx->cl.parseEntitiesNum - 1;
 			entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
-			MSG_ReadDeltaEntity( msg, &zeroEnt, newfloatForced, 0 );
+			MSG_ReadDeltaEntityWithFloats( msg, &zeroEnt, newfloatForced, NULL, 0, qtrue );
 			// read owner delta
 			int owner_delta = 0;
 			qboolean unchanged = MSG_ReadBits( msg, 1 ) == 0 ? qtrue : qfalse;
@@ -506,6 +508,13 @@ void CL_ParseDemoMetadata( msg_t* msg ) {
 	}
 }
 
+void CL_ParseDemoEnded( msg_t* msg ) {
+	int idx = MSG_ReadByte( msg );
+	demoMetadata_t* demo = &cctx->demos[idx];
+	demo->eos = qtrue;
+	demo->eosSent = qtrue;
+}
+
 /*
 ==================
 CL_ParseGamestate
@@ -683,8 +692,11 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 			//if ( cls.cgameStarted )
 			//	CGVM_MapChange();
 			break;
-		case svc_demometadata:
+		case svc_demoMetadata:
 			CL_ParseDemoMetadata( msg );
+			break;
+		case svc_demoEnded:
+			CL_ParseDemoEnded( msg );
 			break;
 		}
 	}
@@ -961,6 +973,7 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
 		if ( cctx->demos[idx].clientnum == clientnum ) {
 			if ( demo != NULL ) {
+				break;
 				Com_Error( ERR_FATAL, "Multiple demos from client %d exist! Found: %s\n", clientnum, cctx->demos[idx].filename );
 			}
 			demo = &cctx->demos[idx];
@@ -1324,7 +1337,7 @@ advanceLoop:
 		if ( !entry.eos ) {
 			ctx = &cctx->ctx;
 			msg_t *msg = ReadNextMessage( &entry );
-			if ( msg == nullptr ) {
+			if ( msg == nullptr || demo->eos ) {
 				entry.eos = qtrue;
 				break;
 			}

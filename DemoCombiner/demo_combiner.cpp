@@ -679,6 +679,7 @@ advanceLoop:
 				msg_t *msg = ReadNextMessage( &entryList[idx] );
 				if ( msg == nullptr ) {
 					entryList[idx].eos = qtrue;
+					entryList[idx].metadata->eos = qtrue;
 					continue;
 				}
 				FreeMsg( msg );

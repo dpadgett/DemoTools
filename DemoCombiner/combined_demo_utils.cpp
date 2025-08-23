@@ -30,7 +30,7 @@ void writeMergedDemoHeader( FILE* fp ) {
 	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
 
 	// write the demo file metadata for each demo combined
-	MSG_WriteByte( &buf, svc_demometadata );
+	MSG_WriteByte( &buf, svc_demoMetadata );
 	MSG_WriteByte( &buf, cctx->numDemos );
 	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
 		demoMetadata_t* demo = &cctx->demos[idx];
@@ -327,6 +327,16 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 		}
 	}
 	//MSG_WriteLong( msg, ctx->clc.reliableSequence );
+
+	// send which demos, if any, reached the end of their file
+	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
+		demoMetadata_t* demo = &cctx->demos[idx];
+		if ( demo->eos && !demo->eosSent ) {
+			MSG_WriteByte( msg, svc_demoEnded ); 
+			MSG_WriteByte( msg, idx );
+			demo->eosSent = qtrue;
+		}
+	}
 
 	// copy over any commands
 	for ( int serverCommand = firstServerCommand; serverCommand <= ctx->clc.serverCommandSequence; serverCommand++ ) {

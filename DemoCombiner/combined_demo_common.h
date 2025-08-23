@@ -3,7 +3,8 @@
 
 enum svc_combined_ops_e {
 	csvc_EOF = svc_EOF,
-	svc_demometadata
+	svc_demoMetadata,
+	svc_demoEnded
 };
 
 typedef struct demoMetadata_s {
@@ -16,6 +17,9 @@ typedef struct demoMetadata_s {
 	int initialServerMessageSequence;
 	int initialServerCommandSequence;
 	byte initialMessageExtraByte;
+	// whether the file reached the end of stream
+	qboolean eos;
+	qboolean eosSent;
 } demoMetadata_t;
 
 typedef struct combinedDemoContext_s {

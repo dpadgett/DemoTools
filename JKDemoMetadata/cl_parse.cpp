@@ -160,7 +160,7 @@ to the current frame
 ==================
 */
 void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState_t* to, entityState_t* floatForced,
-	int number );
+	int number, qboolean isFloatForced );
 void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame, int newnum, entityState_t *old,
 					 qboolean unchanged) {
 	entityState_t	*state, *floatForced;
@@ -170,7 +170,7 @@ void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame, int newnum, entityState_t 
 	state = &ctx->cl.parseEntities[ctx->cl.parseEntitiesNum & (MAX_PARSE_ENTITIES-1)];
 	floatForced = &ctx->parseEntitiesFloatForced[ctx->cl.parseEntitiesNum & ( MAX_PARSE_ENTITIES - 1 )];
 
-	if ( frame->serverTime == 1370498 && newnum == 78 ) {
+	if ( frame->serverTime == 413135 && newnum == 3 && frame->ps.commandTime == 413076 ) {
 		Com_Printf( "WTF8\n" );
 	}
 
@@ -181,7 +181,7 @@ void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame, int newnum, entityState_t 
 	}
 	else
 	{
-		MSG_ReadDeltaEntityWithFloats( msg, old, state, floatForced, newnum );
+		MSG_ReadDeltaEntityWithFloats( msg, old, state, floatForced, newnum, qfalse );
 	}
 
 	if ( state->number == (MAX_GENTITIES-1) ) {
