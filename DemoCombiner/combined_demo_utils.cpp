@@ -25,6 +25,8 @@ void writeMergedDemoHeader( FILE* fp ) {
 
 	// NOTE, MRE: all server->client messages now acknowledge
 	// for gamestate message, reliableAcknowledge is transmitted differently
+	int serverMessageSequenceMask = 0;
+	MSG_WriteLong( &buf, serverMessageSequenceMask );
 	int reliableAcknowledgeMask = 0;
 	MSG_WriteLong( &buf, reliableAcknowledgeMask );
 	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
@@ -305,7 +307,30 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	MSG_Init( msg, msgData, sizeof( msgData ) );
 	MSG_Bitstream( msg );
 
+	// write server message sequence delta.
+	// it might not increment by 1 in the case of dropped packets.
+	// somehow even server demos had missing messages too?
 	int mask = cctx->matchedClients;
+	for ( int i = 0; ( 1 << i ) <= mask; i++ ) {
+		if ( mask & ( 1 << i ) ) {
+			int prev = cctx->lastServerMessageSequence[i];
+			int cur = cctx->serverMessageSequence[i];
+			if ( cur == prev + 1 ) {
+				// expected change, skip
+				mask ^= ( 1 << i );
+			}
+		}
+	}
+	MSG_WriteLong( msg, mask );
+	for ( int i = 0; ( 1 << i ) <= mask; i++ ) {
+		if ( mask & ( 1 << i ) ) {
+			int prev = cctx->lastServerMessageSequence[i];
+			int cur = cctx->serverMessageSequence[i];
+			MSG_WriteLong( msg, cur - prev - 1 );
+		}
+	}
+
+	mask = cctx->matchedClients;
 	for ( int i = 0; ( 1 << i ) <= mask; i++ ) {
 		if ( mask & ( 1 << i ) ) {
 			int psIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << i ) ? 0 : 1;

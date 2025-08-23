@@ -614,6 +614,19 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 
 	MSG_Bitstream( msg );
 
+	// get the message number for clients who incremented by more than 1
+	// rest of clients will be updated once we get the matched client mask for the snapshot
+	long serverMessageSequenceMask = MSG_ReadLong( msg );
+	for ( int i = 0; ( 1 << i ) <= serverMessageSequenceMask; i++ ) {
+		if ( serverMessageSequenceMask & ( 1 << i ) ) {
+			cctx->lastServerMessageSequence[i] = cctx->serverMessageSequence[i];
+			int prev = cctx->lastServerMessageSequence[i];
+			int* cur = &cctx->serverMessageSequence[i];
+			int delta = MSG_ReadLong( msg );
+			*cur = prev + 1 + delta;
+		}
+	}
+
 	// get the reliable sequence acknowledge number
 	//long reliableAcknowledge = MSG_ReadLong( msg );
 	long reliableAcknowledgeMask = MSG_ReadLong( msg );
@@ -681,6 +694,15 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 			break;
 		case svc_snapshot:
 			CL_ParseMergedSnapshot( msg );
+			serverMessageSequenceMask = cctx->matchedClients ^ serverMessageSequenceMask;
+			for ( int i = 0; ( 1 << i ) <= serverMessageSequenceMask; i++ ) {
+				if ( serverMessageSequenceMask & ( 1 << i ) ) {
+					cctx->lastServerMessageSequence[i] = cctx->serverMessageSequence[i];
+					int prev = cctx->lastServerMessageSequence[i];
+					int* cur = &cctx->serverMessageSequence[i];
+					*cur = prev + 1;
+				}
+			}
 			break;
 		case svc_setgame:
 			CL_ParseSetGame( msg );
@@ -973,8 +995,8 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
 		if ( cctx->demos[idx].clientnum == clientnum ) {
 			if ( demo != NULL ) {
-				break;
-				Com_Error( ERR_FATAL, "Multiple demos from client %d exist! Found: %s\n", clientnum, cctx->demos[idx].filename );
+				//break;
+				//Com_Error( ERR_FATAL, "Multiple demos from client %d exist! Found: %s\n", clientnum, cctx->demos[idx].filename );
 			}
 			demo = &cctx->demos[idx];
 			Com_Printf( "Found demo: %s\n", demo->filename );
@@ -994,6 +1016,18 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 	json_t *missingFrames = json_array();
 	while ( true ) {
 		if ( ctx->cl.snap.serverTime < demo->firstFrameTime || !(cctx->matchedClients & ( 1 << clientnum )) ) {
+			// need to update configstrings for the gamestate if we haven't written it yet
+			if ( framesSaved == 0 ) {
+				for ( int commandNum = entry.firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
+					char* command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+
+					Cmd_TokenizeString( command );
+					char* cmd = Cmd_Argv( 0 );
+					if ( !strcmp( cmd, "cs" ) ) {
+						CL_ConfigstringModified();
+					}
+				}
+			}
 			goto advanceLoop;
 		}
 		//// find frame time
@@ -1074,7 +1108,8 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 		//}*/
 
 		//ctx = &mergedCtx.ctx;
-		entry.ctx->clc.serverMessageSequence++;
+		//entry.ctx->clc.serverMessageSequence++;
+		entry.ctx->clc.serverMessageSequence = cctx->serverMessageSequence[clientnum];
 		////ctx->clc.reliableAcknowledge; // this doesn't need to be bumped
 		int raIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 1 : 0;
 		entry.ctx->clc.reliableAcknowledge = cctx->reliableAcknowledge[raIdx ^ 1][clientnum];
@@ -1101,7 +1136,9 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 			entry.ctx->clc.checksumFeed = ctx->clc.checksumFeed;
 			entry.ctx->messageExtraByte = demo->initialMessageExtraByte;
 			ctx = entry.ctx;
+			ctx->clc.serverMessageSequence = demo->initialServerMessageSequence + 1;
 			writeDemoHeaderWithServerCommands( outFile, demo->initialServerReliableAcknowledge, demo->initialServerCommandSequence, serverCommandOffset );
+			ctx->clc.serverMessageSequence = cctx->serverMessageSequence[clientnum];
 			ctx = &cctx->ctx;
 		}
 

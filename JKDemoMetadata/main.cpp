@@ -268,7 +268,7 @@ entityState_t makerEnts[MAX_GENTITIES];
 
 int main( int argc, char **argv ) {
 	memset( playerHistory, 0, sizeof( playerHistory ) );
-	cl_shownet->integer = 0;
+	cl_shownet->integer = 3;
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
 	if ( argc < 2 ) {
 		printf( "No file specified.\n"
