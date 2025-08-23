@@ -71,12 +71,14 @@
   <ItemGroup>
     <ClInclude Include="..\DemoCombiner\combined_demo_common.h" />
     <ClInclude Include="..\DemoCombiner\combined_demo_utils.h" />
+    <ClInclude Include="..\DemoCombiner\enhanced_msg.h" />
     <ClInclude Include="..\JKDemoMetadata\demo_common.h" />
     <ClInclude Include="..\JKDemoMetadata\deps.h" />
     <ClInclude Include="..\JKDemoMetadata\utils.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\DemoCombiner\combined_demo_utils.cpp" />
+    <ClCompile Include="..\DemoCombiner\enhanced_msg.cpp" />
     <ClCompile Include="..\DemoTrimmer\demo_utils.cpp" />
     <ClCompile Include="..\JKDemoMetadata\cl_parse.cpp" />
     <ClCompile Include="..\JKDemoMetadata\cmd.cpp" />

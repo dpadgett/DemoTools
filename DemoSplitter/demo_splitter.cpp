@@ -941,7 +941,7 @@ typedef struct netField_s {
 	unsigned	mCount;
 #endif
 } netField_t;
-extern netField_t entityStateFields[];
+extern netField_t entityStateFields[132];
 
 static combinedDemoContext_t mergedCtx;
 combinedDemoContext_t* cctx = &mergedCtx;
@@ -1250,7 +1250,7 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 						continue;
 					}
 					entityState_t floatForced = ctx->parseEntitiesFloatForced[entIdx & ( MAX_PARSE_ENTITIES - 1 )];
-					for ( int i = 0; i < ( sizeof( entityState_t ) / 4 ) - 1; i++ ) {
+					for ( int i = 0; i < (int) ARRAY_LEN( entityStateFields ); i++ ) {
 						netField_t* field = &entityStateFields[i];
 						int* toF = (int*) ( (byte*) &floatForced + field->offset );
 						if ( *toF & ( 1 << clientnum ) ) {

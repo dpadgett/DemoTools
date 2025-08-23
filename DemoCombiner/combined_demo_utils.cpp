@@ -4,6 +4,7 @@
 #include "client/client.h"
 #include "demo_common.h"
 #include "combined_demo_common.h"
+#include "enhanced_msg.h"
 
 #ifdef WIN32
 #include <io.h>
@@ -136,8 +137,6 @@ Writes a delta update of an entityState_t list to the message.
 =============
 */
 entityState_t zeroEnt = {};
-void MSG_WriteDeltaEntityOrFloatForced( msg_t* msg, struct entityState_s* from, struct entityState_s* to,
-	qboolean force, qboolean isFloatForced );
 static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* owners, int* prev_owners, msg_t* msg ) {
 	entityState_t* oldent, * newent;
 	entityState_t* oldfloatForced, * newfloatForced;
@@ -296,7 +295,6 @@ static void CL_WriteDemoMessage( msg_t* msg, int headerBytes, FILE* fp ) {
 	wroteBytes += len;
 }
 
-void MSG_WriteDeltaForcedFields( msg_t* msg, struct playerState_s* from, struct playerState_s* to, qboolean isVehiclePS );
 void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceNonDelta, int serverCommandOffset ) {
 	msg_t				msgImpl, * msg = &msgImpl;
 	byte				msgData[MAX_MSGLEN];
@@ -484,7 +482,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 				MSG_WriteDeltaPlayerstate( msg, &oldframe->ps, &frame->ps, frame->pDeltaOneBit, frame->pDeltaNumBit );
 		#else
 				MSG_WriteDeltaPlayerstate( msg, oldps, ps );
-				MSG_WriteDeltaForcedFields( msg, oldpsff, psff, qfalse );
+				MSG_WriteDeltaPlayerstateForcedFields( msg, oldpsff, psff, qfalse );
 		#endif
 				if ( ps->m_iVehicleNum )
 				{ //then write the vehicle's playerstate too
@@ -495,7 +493,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 						MSG_WriteDeltaPlayerstate( msg, NULL, vps, NULL, NULL, qtrue );
 		#else
 						MSG_WriteDeltaPlayerstate( msg, NULL, vps, qtrue );
-						MSG_WriteDeltaForcedFields( msg, NULL, vps, qtrue );
+						MSG_WriteDeltaPlayerstateForcedFields( msg, NULL, vps, qtrue );
 #endif
 					}
 					else
@@ -504,7 +502,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 						MSG_WriteDeltaPlayerstate( msg, &oldframe->vps, &frame->vps, frame->pDeltaOneBitVeh, frame->pDeltaNumBitVeh, qtrue );
 		#else
 						MSG_WriteDeltaPlayerstate( msg, oldvps, vps, qtrue );
-						MSG_WriteDeltaForcedFields( msg, oldvpsff, vpsff, qtrue );
+						MSG_WriteDeltaPlayerstateForcedFields( msg, oldvpsff, vpsff, qtrue );
 #endif
 					}
 				}
@@ -514,7 +512,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 				MSG_WriteDeltaPlayerstate( msg, NULL, &frame->ps, NULL, NULL );
 		#else
 				MSG_WriteDeltaPlayerstate( msg, NULL, ps );
-				MSG_WriteDeltaForcedFields( msg, NULL, psff, qfalse );
+				MSG_WriteDeltaPlayerstateForcedFields( msg, NULL, psff, qfalse );
 #endif
 				if ( ps->m_iVehicleNum )
 				{ //then write the vehicle's playerstate too
@@ -522,7 +520,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 					MSG_WriteDeltaPlayerstate( msg, NULL, &frame->vps, NULL, NULL, qtrue );
 		#else
 					MSG_WriteDeltaPlayerstate( msg, NULL, vps, qtrue );
-					MSG_WriteDeltaForcedFields( msg, NULL, vps, qtrue );
+					MSG_WriteDeltaPlayerstateForcedFields( msg, NULL, vps, qtrue );
 #endif
 				}
 			}

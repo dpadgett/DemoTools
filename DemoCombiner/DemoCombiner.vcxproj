@@ -74,6 +74,7 @@
     <ClInclude Include="..\JKDemoMetadata\utils.h" />
     <ClInclude Include="combined_demo_common.h" />
     <ClInclude Include="combined_demo_utils.h" />
+    <ClInclude Include="enhanced_msg.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\JKDemoMetadata\cl_parse.cpp" />
@@ -87,6 +88,7 @@
     <ClCompile Include="..\OpenJK\shared\qcommon\q_math.c" />
     <ClCompile Include="..\OpenJK\shared\qcommon\q_string.c" />
     <ClCompile Include="..\OpenJK\codemp\qcommon\q_shared.cpp" />
+    <ClCompile Include="enhanced_msg.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
