@@ -3,6 +3,7 @@
 #include "qcommon/qcommon.h"
 #include "client/client.h"
 #include "demo_common.h"
+#include "enhanced_msg.h"
 
 extern	cvar_t	*cl_shownet;
 
@@ -159,8 +160,6 @@ Parses deltas from the given base and adds the resulting entity
 to the current frame
 ==================
 */
-void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState_t* to, entityState_t* floatForced,
-	int number, qboolean isFloatForced );
 void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame, int newnum, entityState_t *old,
 					 qboolean unchanged) {
 	entityState_t	*state, *floatForced;
@@ -320,7 +319,6 @@ cl.snap and saved in cl.snapshots[].  If the snapshot is invalid
 for any reason, no changes to the state will be made at all.
 ================
 */
-void MSG_ReadDeltaPlayerstateWithForcedFields( msg_t* msg, playerState_t* from, playerState_t* to, playerState_t* forcedFields, qboolean isVehiclePS );
 void CL_ParseSnapshot( msg_t *msg ) {
 	int			len;
 	clSnapshot_t	*old;
@@ -512,6 +510,10 @@ void CL_ParseServerMessage( msg_t *msg ) {
 
 	// get the reliable sequence acknowledge number
 	ctx->clc.reliableAcknowledge = MSG_ReadLong( msg );
+	if ( cl_shownet->integer >= 1 ) {
+		Com_Printf( "reliableAcknowledge: %i\n", ctx->clc.reliableAcknowledge );
+	}
+	ctx->serverReliableAcknowledge = ctx->clc.serverCommandSequence;
 	qboolean firstServerCommandInMessage = qtrue;
 
 	//

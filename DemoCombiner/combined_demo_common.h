@@ -4,19 +4,26 @@
 enum svc_combined_ops_e {
 	csvc_EOF = svc_EOF,
 	svc_demoMetadata,
-	svc_demoEnded
+	svc_demoEnded,
+	svc_demoGamestate,
 };
+
+// metadata for the gamestate message
+typedef struct gamestateMetadata_s {
+	int demoIdx;
+	int serverReliableAcknowledge;
+	int serverMessageSequence;
+	int serverCommandSequence;
+	int reliableAcknowledge;
+	byte messageExtraByte;
+} gamestateMetadata_t;
 
 typedef struct demoMetadata_s {
 	char filename[MAX_STRING_CHARS];
 	int fileMtime;
 	int clientnum;
 	int firstFrameTime;
-	// metadata for the initial gamestate message
-	int initialServerReliableAcknowledge;
-	int initialServerMessageSequence;
-	int initialServerCommandSequence;
-	byte initialMessageExtraByte;
+	gamestateMetadata_t* lastGamestate;
 	// whether the file reached the end of stream
 	qboolean eos;
 	qboolean eosSent;
@@ -45,11 +52,6 @@ typedef struct combinedDemoContext_s {
 	int curPlayerStateIdxMask;
 	// 1 if the prev player state is set
 	int playerStateValidMask;
-	//int initialServerReliableAcknowledgeMask;
-	//int initialServerReliableAcknowledge[MAX_CLIENTS];
-	//int initialServerMessageSequence[MAX_CLIENTS];
-	//int initialServerCommandSequence[MAX_CLIENTS];
-	//byte initialMessageExtraByte[MAX_CLIENTS];
 	byte messageExtraByte[MAX_CLIENTS];
 	int reliableAcknowledgeIdxMask;
 	int reliableAcknowledge[2][MAX_CLIENTS];
@@ -61,6 +63,9 @@ typedef struct combinedDemoContext_s {
 	int snapFlags[MAX_CLIENTS];
 	int numDemos;
 	demoMetadata_t *demos;
+	int numGamestates;
+	int numHandledGamestates;
+	gamestateMetadata_t gamestates[MAX_CLIENTS * 5];  // allow 5 gamestates per client
 } combinedDemoContext_t;
 
 extern combinedDemoContext_t* cctx;

@@ -11,6 +11,52 @@
 #include <fcntl.h>
 #endif
 
+void writeMergedGamestateData( FILE* fp ) {
+	byte		bufData[MAX_MSGLEN];
+	msg_t	buf;
+	int			i;
+	int			len;
+	entityState_t* ent;
+	entityState_t	nullstate;
+	char* s;
+
+	// write out the gamestate message
+	MSG_Init( &buf, bufData, sizeof( bufData ) );
+	MSG_Bitstream( &buf );
+
+	// NOTE, MRE: all server->client messages now acknowledge
+	// for gamestate message, reliableAcknowledge is transmitted differently
+	int serverMessageSequenceMask = 0;
+	MSG_WriteLong( &buf, serverMessageSequenceMask );
+	int reliableAcknowledgeMask = 0;
+	MSG_WriteLong( &buf, reliableAcknowledgeMask );
+	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
+
+	// write the demo file metadata for each demo combined
+	for ( int idx = cctx->numHandledGamestates; idx < cctx->numGamestates; idx++, cctx->numHandledGamestates++ ) {
+		MSG_WriteByte( &buf, svc_demoGamestate );
+		gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[idx];
+		MSG_WriteByte( &buf, gamestateMetadata->demoIdx );
+		MSG_WriteLong( &buf, gamestateMetadata->serverReliableAcknowledge );
+		MSG_WriteLong( &buf, gamestateMetadata->serverMessageSequence );
+		MSG_WriteLong( &buf, gamestateMetadata->serverCommandSequence );
+		MSG_WriteLong( &buf, gamestateMetadata->reliableAcknowledge );
+		MSG_WriteByte( &buf, gamestateMetadata->messageExtraByte );
+	}
+
+	// finished writing the client packet
+	MSG_WriteByte( &buf, svc_EOF );
+
+	// write it to the demo file
+	len = LittleLong( ctx->clc.serverMessageSequence );
+	ctx->clc.serverMessageSequence++;
+	fwrite( &len, 1, 4, fp );
+
+	len = LittleLong( buf.cursize );
+	fwrite( &len, 4, 1, fp );
+	fwrite( buf.data, 1, buf.cursize, fp );
+}
+
 void writeMergedDemoHeader( FILE* fp ) {
 	byte		bufData[MAX_MSGLEN];
 	msg_t	buf;
@@ -41,10 +87,10 @@ void writeMergedDemoHeader( FILE* fp ) {
 		MSG_WriteLong( &buf, demo->fileMtime );
 		MSG_WriteByte( &buf, demo->clientnum );
 		MSG_WriteLong( &buf, demo->firstFrameTime );
-		MSG_WriteLong( &buf, demo->initialServerReliableAcknowledge );
-		MSG_WriteLong( &buf, demo->initialServerMessageSequence );
-		MSG_WriteLong( &buf, demo->initialServerCommandSequence );
-		MSG_WriteByte( &buf, demo->initialMessageExtraByte );
+		//MSG_WriteLong( &buf, demo->initialServerReliableAcknowledge );
+		//MSG_WriteLong( &buf, demo->initialServerMessageSequence );
+		//MSG_WriteLong( &buf, demo->initialServerCommandSequence );
+		//MSG_WriteByte( &buf, demo->initialMessageExtraByte );
 	}
 
 	MSG_WriteByte( &buf, svc_gamestate );

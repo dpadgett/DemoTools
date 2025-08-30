@@ -23,9 +23,6 @@ typedef struct {
 	int framesSaved;
 	int currentMap;
 	qboolean eos;
-	// for server commands sent in the gamestate message, since we only loop on snaps
-	int gamestateServerReliableAcknowledge;
-	int gamestateServerCommandSequence;
 	// idx of merged server command seq where the last server cmd from this demo was
 	int serverCommandSyncIdx;
 } demoEntry_t;
@@ -501,10 +498,6 @@ void CL_ParseDemoMetadata( msg_t* msg ) {
 		demo->fileMtime = MSG_ReadLong( msg );
 		demo->clientnum = MSG_ReadByte( msg );
 		demo->firstFrameTime = MSG_ReadLong( msg );
-		demo->initialServerReliableAcknowledge = MSG_ReadLong( msg );
-		demo->initialServerMessageSequence = MSG_ReadLong( msg );
-		demo->initialServerCommandSequence = MSG_ReadLong( msg );
-		demo->initialMessageExtraByte = MSG_ReadByte( msg );
 	}
 }
 
@@ -513,6 +506,19 @@ void CL_ParseDemoEnded( msg_t* msg ) {
 	demoMetadata_t* demo = &cctx->demos[idx];
 	demo->eos = qtrue;
 	demo->eosSent = qtrue;
+}
+
+void CL_ParseDemoGamestate( msg_t* msg ) {
+	int demoIdx = MSG_ReadByte( msg );
+	demoMetadata_t* demo = &cctx->demos[demoIdx];
+	gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[cctx->numGamestates++];
+	demo->lastGamestate = gamestateMetadata;
+	gamestateMetadata->demoIdx = demoIdx;
+	gamestateMetadata->serverReliableAcknowledge = MSG_ReadLong( msg );
+	gamestateMetadata->serverMessageSequence = MSG_ReadLong( msg );
+	gamestateMetadata->serverCommandSequence = MSG_ReadLong( msg );
+	gamestateMetadata->reliableAcknowledge = MSG_ReadLong( msg );
+	gamestateMetadata->messageExtraByte = MSG_ReadByte( msg );
 }
 
 /*
@@ -720,6 +726,9 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 		case svc_demoEnded:
 			CL_ParseDemoEnded( msg );
 			break;
+		case svc_demoGamestate:
+			CL_ParseDemoGamestate( msg );
+			break;
 		}
 	}
 }
@@ -741,6 +750,7 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 	if ( ctx->cl.snap.valid ) {
 		entityEventSequence = ctx->cl.snap.ps.entityEventSequence;
 	}
+	ctx->cl.newSnapshots = qfalse;
 	while ( ( msg = ReadNextMessageRaw( demo ) ) != nullptr ) {
 		int lastSnapFlags = ctx->cl.snap.snapFlags;
 		qboolean lastSnapValid = ctx->cl.snap.valid;
@@ -753,8 +763,6 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		}
 
 		if ( !ctx->cl.newSnapshots ) {
-			demo->gamestateServerReliableAcknowledge = ctx->serverReliableAcknowledge;
-			demo->gamestateServerCommandSequence = ctx->clc.serverCommandSequence;
 			FreeMsg( msg );
 			continue;
 		}
@@ -1005,10 +1013,10 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 	if ( demo == NULL ) {
 		Com_Error( ERR_FATAL, "No demo from client %d exists!\n", clientnum );
 	}
-	entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->initialServerReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
-	entry.ctx->serverReliableAcknowledge = demo->initialServerReliableAcknowledge;
+	entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
+	entry.ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
 	entry.ctx->clc.serverCommandSequence--;
-	entry.ctx->clc.serverMessageSequence = demo->initialServerMessageSequence;
+	entry.ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
 	ctx = &mergedCtx.ctx;
 	int serverCommandOffset = 0;
 	int framesSaved = 0;
@@ -1128,17 +1136,25 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 			Q_strncpyz( entry.ctx->clc.serverCommands[entry.ctx->clc.serverCommandSequence & ( MAX_RELIABLE_COMMANDS - 1 )], command, MAX_STRING_CHARS );
 		}
 
-		if ( framesSaved == 0 ) {
+		for ( int idx = cctx->numHandledGamestates; idx < cctx->numGamestates; idx++, cctx->numHandledGamestates++ ) {
+			if ( cctx->gamestates[idx].demoIdx != demo - cctx->demos ) {
+				continue;
+			}
+			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[idx];
 			// write header
 			memcpy( entry.ctx->cl.gameState.stringData, ctx->cl.gameState.stringData, sizeof( ctx->cl.gameState.stringData ) );
 			memcpy( entry.ctx->cl.gameState.stringOffsets, ctx->cl.gameState.stringOffsets, sizeof( ctx->cl.gameState.stringOffsets ) );
 			memcpy( entry.ctx->cl.entityBaselines, ctx->cl.entityBaselines, sizeof( ctx->cl.entityBaselines ) );
 			entry.ctx->clc.checksumFeed = ctx->clc.checksumFeed;
-			entry.ctx->messageExtraByte = demo->initialMessageExtraByte;
+			entry.ctx->messageExtraByte = gamestateMetadata->messageExtraByte;
 			ctx = entry.ctx;
-			ctx->clc.serverMessageSequence = demo->initialServerMessageSequence + 1;
-			writeDemoHeaderWithServerCommands( outFile, demo->initialServerReliableAcknowledge, demo->initialServerCommandSequence, serverCommandOffset );
+			ctx->clc.serverMessageSequence = gamestateMetadata->serverMessageSequence + 1;
+			ctx->clc.reliableAcknowledge = gamestateMetadata->reliableAcknowledge;
+			ctx->clc.reliableSequence = ctx->clc.reliableAcknowledge;
+			writeDemoHeaderWithServerCommands( outFile, gamestateMetadata->serverReliableAcknowledge, gamestateMetadata->serverCommandSequence, serverCommandOffset );
 			ctx->clc.serverMessageSequence = cctx->serverMessageSequence[clientnum];
+			ctx->clc.reliableAcknowledge = cctx->reliableAcknowledge[raIdx ^ 1][clientnum];
+			ctx->clc.reliableSequence = ctx->clc.reliableAcknowledge;
 			ctx = &cctx->ctx;
 		}
 

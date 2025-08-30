@@ -53,7 +53,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\Users\dan\Downloads\jansson-2.5\src;$(SolutionDir)\OpenJK\codemp;$(SolutionDir)\OpenJK\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Users\dan\Downloads\jansson-2.5\src;$(SolutionDir)\OpenJK\codemp;$(SolutionDir)\DemoCombiner;$(SolutionDir)\OpenJK\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -81,6 +81,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\DemoCombiner\enhanced_msg.cpp" />
     <ClCompile Include="cl_parse.cpp" />
     <ClCompile Include="cmd.cpp" />
     <ClCompile Include="deps.cpp" />
@@ -93,6 +94,7 @@
     <ClCompile Include="utils.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\DemoCombiner\enhanced_msg.h" />
     <ClInclude Include="demo_common.h" />
     <ClInclude Include="deps.h" />
     <ClInclude Include="main.h" />

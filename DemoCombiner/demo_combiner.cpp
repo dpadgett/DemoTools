@@ -77,10 +77,14 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 
 		if ( !ctx->cl.newSnapshots ) {
 			demo->metadata->clientnum = ctx->clc.clientNum;
-			demo->metadata->initialServerMessageSequence = ctx->clc.serverMessageSequence;
-			demo->metadata->initialServerReliableAcknowledge = ctx->serverReliableAcknowledge;
-			demo->metadata->initialServerCommandSequence = ctx->clc.serverCommandSequence;
-			demo->metadata->initialMessageExtraByte = ctx->messageExtraByte;
+			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[cctx->numGamestates++];
+			gamestateMetadata->demoIdx = demo->metadata - cctx->demos;
+			gamestateMetadata->serverMessageSequence = ctx->clc.serverMessageSequence;
+			gamestateMetadata->serverReliableAcknowledge = ctx->serverReliableAcknowledge;
+			gamestateMetadata->serverCommandSequence = ctx->clc.serverCommandSequence;
+			gamestateMetadata->reliableAcknowledge = ctx->clc.reliableAcknowledge;
+			gamestateMetadata->messageExtraByte = ctx->messageExtraByte;
+			demo->metadata->lastGamestate = gamestateMetadata;
 			FreeMsg( msg );
 			continue;
 		}
@@ -88,8 +92,8 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		if ( lastSnapValid && ( ( lastSnapFlags ^ ctx->cl.snap.snapFlags ) & SNAPFLAG_SERVERCOUNT ) != 0 ) {
 			demo->currentMap++;
 		}
-		if ( ctx->clc.lastExecutedServerCommand == 0 && demo->metadata->initialServerCommandSequence > 0 ) {
-			ctx->clc.lastExecutedServerCommand = demo->metadata->initialServerReliableAcknowledge + 1;
+		if ( ctx->clc.lastExecutedServerCommand == 0 && demo->metadata->lastGamestate->serverCommandSequence > 0 ) {
+			ctx->clc.lastExecutedServerCommand = demo->metadata->lastGamestate->serverReliableAcknowledge + 1;
 		}
 		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_RELIABLE_COMMANDS ) {
 			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10; // fudge factor
@@ -498,7 +502,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					// insert it at index curCommand
 					ctx->clc.serverCommandSequence++;
 					ctx->clc.lastExecutedServerCommand++;
-					if ( commandNum <= entryList[idx].metadata->initialServerCommandSequence && framesSaved == 0 ) {
+					if ( commandNum <= entryList[idx].metadata->lastGamestate->serverCommandSequence && framesSaved == 0 ) {
 						// don't execute this one, it arrived with the gamestate
 						firstServerCommandToExecute++;
 						if ( curCommand >= firstServerCommandToExecute ) {
@@ -528,6 +532,9 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		if ( framesSaved == 0 ) {
 			// write header first before we update configstrings
 			writeMergedDemoHeader( outFile );
+		}
+		if ( cctx->numGamestates > cctx->numHandledGamestates ) {
+			writeMergedGamestateData( outFile );
 		}
 		for ( int commandNum = firstServerCommandToExecute; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
 			char* command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
