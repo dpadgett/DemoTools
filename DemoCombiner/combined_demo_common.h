@@ -6,6 +6,7 @@ enum svc_combined_ops_e {
 	svc_demoMetadata,
 	svc_demoEnded,
 	svc_demoGamestate,
+	svc_demoGamestateOverrides,
 };
 
 // metadata for the gamestate message
@@ -16,6 +17,9 @@ typedef struct gamestateMetadata_s {
 	int serverCommandSequence;
 	int reliableAcknowledge;
 	byte messageExtraByte;
+	int numConfigStringOverrides;
+	int configStringOverrideIndex[MAX_CONFIGSTRINGS];
+	char *configStringOverride[MAX_CONFIGSTRINGS];
 } gamestateMetadata_t;
 
 typedef struct demoMetadata_s {

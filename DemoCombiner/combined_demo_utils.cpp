@@ -405,6 +405,17 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 			MSG_WriteByte( msg, idx );
 			demo->eosSent = qtrue;
 		}
+		if ( demo->firstFrameTime == ctx->cl.snap.serverTime && demo->lastGamestate->numConfigStringOverrides > 0 ) {
+			// demo's first frame, send if any configstrings didn't match the demo's gamestate.
+			// (could happen from packet loss)
+			MSG_WriteByte( msg, svc_demoGamestateOverrides );
+			MSG_WriteByte( msg, idx );
+			MSG_WriteShort( msg, demo->lastGamestate->numConfigStringOverrides );
+			for ( int i = 0; i < demo->lastGamestate->numConfigStringOverrides; i++ ) {
+				MSG_WriteShort( msg, demo->lastGamestate->configStringOverrideIndex[i] );
+				MSG_WriteString( msg, demo->lastGamestate->configStringOverride[i] );
+			}
+		}
 	}
 
 	// copy over any commands

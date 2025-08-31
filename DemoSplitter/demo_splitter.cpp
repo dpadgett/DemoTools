@@ -521,6 +521,23 @@ void CL_ParseDemoGamestate( msg_t* msg ) {
 	gamestateMetadata->messageExtraByte = MSG_ReadByte( msg );
 }
 
+static char configStringOverrides[MAX_GAMESTATE_CHARS * 12];
+static int configStringOverrideDataLen = 0;
+void CL_ParseDemoGamestateOverrides( msg_t* msg ) {
+	int demoIdx = MSG_ReadByte( msg );
+	demoMetadata_t* demo = &cctx->demos[demoIdx];
+	gamestateMetadata_t* gamestateMetadata = demo->lastGamestate;
+	gamestateMetadata->numConfigStringOverrides = MSG_ReadShort( msg );
+	for ( int i = 0; i < demo->lastGamestate->numConfigStringOverrides; i++ ) {
+		demo->lastGamestate->configStringOverrideIndex[i] = MSG_ReadShort( msg );
+		char *str = MSG_ReadString( msg );
+		int size = strlen( str );
+		Q_strncpyz( &configStringOverrides[configStringOverrideDataLen], str, MAX_GAMESTATE_CHARS - configStringOverrideDataLen );
+		demo->lastGamestate->configStringOverride[i] = &configStringOverrides[configStringOverrideDataLen];
+		configStringOverrideDataLen += size + 1;
+	}
+}
+
 /*
 ==================
 CL_ParseGamestate
@@ -728,6 +745,9 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 			break;
 		case svc_demoGamestate:
 			CL_ParseDemoGamestate( msg );
+			break;
+		case svc_demoGamestateOverrides:
+			CL_ParseDemoGamestateOverrides( msg );
 			break;
 		}
 	}
@@ -954,7 +974,7 @@ extern netField_t entityStateFields[132];
 static combinedDemoContext_t mergedCtx;
 combinedDemoContext_t* cctx = &mergedCtx;
 // bitmask of which clients had this ent in cur/prev snaps.
-int RunSplit(char *inFile, int clientnum, char *outFilename)
+int RunSplit(char *inFile, int demoIdx, char *outFilename)
 {
 	cl_shownet->integer = 0;
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
@@ -972,7 +992,35 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 		entry.currentMap = 0;
 		entry.eos = qfalse;
 		entry.serverCommandSyncIdx = 0;
-		entry.ctx->clc.clientNum = clientnum;
+		//entry.ctx->clc.clientNum = clientnum;
+	}
+
+	qboolean demoFinished = qfalse;
+	Com_Memset( &mergedCtx, 0, sizeof( mergedCtx ) );
+	// Com_Memset( mergedCtx.serverReliableAcknowledge, -1, sizeof( mergedCtx.serverReliableAcknowledge ) ); // so that it starts at 0 when unknown
+	if ( !ParseDemoContext( &entry ) ) {
+		printf( "Failed to parse demo context for demo %s\n", entry.filename );
+		return -1;
+	}
+
+	if ( demoIdx == -1 ) {
+		for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
+			demoMetadata_t *demo = &cctx->demos[idx];
+			Com_Printf( "Demo %d: client %d, filename %s, mtime %d\n", idx, demo->clientnum, demo->filename, demo->fileMtime );
+		}
+		return 0;
+	}
+
+	if ( cctx->numDemos <= demoIdx ) {
+		Com_Error( ERR_FATAL, "Demo %d exceeds numDemos %d!\n", demoIdx, cctx->numDemos );
+	}
+	demoMetadata_t* demo = &cctx->demos[demoIdx];
+	Com_Printf( "Found demo: %s\n", demo->filename );
+	int clientnum = demo->clientnum;
+	entry.ctx->clc.clientNum = clientnum;
+
+	if ( !outFilename || !*outFilename ) {
+		outFilename = demo->filename;
 	}
 
 	FILE *outFile;
@@ -992,27 +1040,6 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 		return -1;
 	}
 
-	qboolean demoFinished = qfalse;
-	Com_Memset( &mergedCtx, 0, sizeof( mergedCtx ) );
-	// Com_Memset( mergedCtx.serverReliableAcknowledge, -1, sizeof( mergedCtx.serverReliableAcknowledge ) ); // so that it starts at 0 when unknown
-	if ( !ParseDemoContext( &entry ) ) {
-		printf( "Failed to parse demo context for demo %s\n", entry.filename );
-		return -1;
-	}
-	demoMetadata_t* demo = NULL;
-	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
-		if ( cctx->demos[idx].clientnum == clientnum ) {
-			if ( demo != NULL ) {
-				//break;
-				//Com_Error( ERR_FATAL, "Multiple demos from client %d exist! Found: %s\n", clientnum, cctx->demos[idx].filename );
-			}
-			demo = &cctx->demos[idx];
-			Com_Printf( "Found demo: %s\n", demo->filename );
-		}
-	}
-	if ( demo == NULL ) {
-		Com_Error( ERR_FATAL, "No demo from client %d exists!\n", clientnum );
-	}
 	entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
 	entry.ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
 	entry.ctx->clc.serverCommandSequence--;
@@ -1137,10 +1164,19 @@ int RunSplit(char *inFile, int clientnum, char *outFilename)
 		}
 
 		for ( int idx = cctx->numHandledGamestates; idx < cctx->numGamestates; idx++, cctx->numHandledGamestates++ ) {
-			if ( cctx->gamestates[idx].demoIdx != demo - cctx->demos ) {
+			if ( cctx->gamestates[idx].demoIdx != demoIdx ) {
 				continue;
 			}
 			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[idx];
+			if ( framesSaved == 0 && gamestateMetadata->numConfigStringOverrides > 0 ) {
+				// handle any overridden configstrings
+				for ( int i = 0; i < gamestateMetadata->numConfigStringOverrides; i++ ) {
+					int num = gamestateMetadata->configStringOverrideIndex[i];
+					char *str = gamestateMetadata->configStringOverride[i];
+					Cmd_TokenizeString( va( "cs %d \"%s\"\n", num, str ) );
+					CL_ConfigstringModified();
+				}
+			}
 			// write header
 			memcpy( entry.ctx->cl.gameState.stringData, ctx->cl.gameState.stringData, sizeof( ctx->cl.gameState.stringData ) );
 			memcpy( entry.ctx->cl.gameState.stringOffsets, ctx->cl.gameState.stringOffsets, sizeof( ctx->cl.gameState.stringOffsets ) );
@@ -1428,7 +1464,7 @@ advanceLoop:
 
 int main(int argc, char** argv)
 {
-	if ( argc < 4 ) {
+	if ( argc < 3 ) {
 		printf( "No file specified.\n"
 				"Usage: \"%s\" infile.dm_26 clientnum demo.dm_26\n", argv[0] );
 		//system( "pause" );
@@ -1437,6 +1473,6 @@ int main(int argc, char** argv)
 
 	int clientnum = atoi(argv[2] );
 	char *inFile = argv[1];
-	char *outFile = argv[3];
+	char *outFile = argc > 3 ? argv[3] : "";
 	RunSplit( inFile, clientnum, outFile );
 }

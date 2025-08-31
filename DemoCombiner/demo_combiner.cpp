@@ -290,6 +290,17 @@ qboolean BG_InKnockDownOnly( int anim )
 	return qfalse;
 }
 
+char* basename( char* filename ) {
+	char* name = strrchr( filename, '/' );
+	if ( name != NULL ) {
+		return &name[1];
+	}
+	name = strrchr( filename, '\\' );
+	if ( name != NULL ) {
+		return &name[1];
+	}
+	return filename;
+}
 
 extern bool sendFullNegativeZero;
 
@@ -309,7 +320,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 	{ // debugger fucks up idx without this
 		for ( int idx = 0; idx < numDemos; idx++ ) {
 			Q_strncpyz( entryList[idx].filename, demos[idx], sizeof( entryList[idx].filename ) );
-			Q_strncpyz( mergedCtx.demos[idx].filename, demos[idx], sizeof( mergedCtx.demos[idx].filename ) );
+			Q_strncpyz( mergedCtx.demos[idx].filename, basename(demos[idx]), sizeof( mergedCtx.demos[idx].filename ) );
 			struct stat result;
 			if ( stat( demos[idx], &result ) == 0 ) {
 				mergedCtx.demos[idx].fileMtime = result.st_mtime;
@@ -535,6 +546,31 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		}
 		if ( cctx->numGamestates > cctx->numHandledGamestates ) {
 			writeMergedGamestateData( outFile );
+		}
+		for ( int matchIdx = 0; matchIdx < mergedCtx.numMatches; matchIdx++ ) {
+			idx = mergedCtx.matches[matchIdx];
+			demoMetadata_t* metadata = entryList[idx].metadata;
+			if ( metadata->firstFrameTime != frameTime ) {
+				continue;
+			}
+			demoContext_t* entryCtx = entryList[idx].ctx;
+			// this is this demo's first frame, make sure that the configstrings match the demo's gamestate
+			// (might be different if some packets are lost)
+			if ( ctx->cl.gameState.dataCount != entryCtx->cl.gameState.dataCount
+				|| memcmp( ctx->cl.gameState.stringData, entryCtx->cl.gameState.stringData, ctx->cl.gameState.dataCount )
+				|| memcmp( ctx->cl.gameState.stringOffsets, entryCtx->cl.gameState.stringOffsets, sizeof( ctx->cl.gameState.stringOffsets ) ) ) {
+				Com_Printf( "configstrings differ!\n" );
+				for ( int i = 0; i < MAX_CONFIGSTRINGS; i++ ) {
+					char* orig = entryCtx->cl.gameState.stringData + entryCtx->cl.gameState.stringOffsets[i];
+					char* combined = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[i];
+					if ( Q_strncmp( orig, combined, MAX_STRING_CHARS ) ) {
+						Com_Printf( "configstring %d: orig %s, but we have %s\n", i, orig, combined );
+						int overrideIdx = metadata->lastGamestate->numConfigStringOverrides++;
+						metadata->lastGamestate->configStringOverrideIndex[overrideIdx] = i;
+						metadata->lastGamestate->configStringOverride[overrideIdx] = orig;
+					}
+				}
+			}
 		}
 		for ( int commandNum = firstServerCommandToExecute; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
 			char* command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
