@@ -93,7 +93,7 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 	// a gamestate always marks a server command sequence
 	ctx->clc.serverCommandSequence = MSG_ReadLong( msg );
 	if ( firstServerCommandInMessage ) {
-		ctx->serverReliableAcknowledge = ctx->clc.serverCommandSequence - 1;
+		ctx->serverReliableAcknowledge = ctx->clc.serverCommandSequence;
 	}
 
 	// parse all the configstrings and baselines

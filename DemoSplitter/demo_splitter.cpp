@@ -538,6 +538,21 @@ void CL_ParseDemoGamestateOverrides( msg_t* msg ) {
 	}
 }
 
+void CL_ParseDemoTruncatedMessage( msg_t* msg ) {
+	int demoIdx = MSG_ReadByte( msg );
+	demoMetadata_t* demo = &cctx->demos[demoIdx];
+
+	msg_t* truncatedMsg = (msg_t*) calloc( 1, sizeof( msg_t ) );
+	byte* msgData = (byte*) calloc( MAX_MSGLEN, 1 );
+	MSG_Init( truncatedMsg, msgData, MAX_MSGLEN );
+	demo->truncatedMsg = truncatedMsg;
+
+	cctx->serverMessageSequence[demo->clientnum] = MSG_ReadLong( msg );
+	truncatedMsg->readcount = MSG_ReadLong( msg );
+	truncatedMsg->cursize = MSG_ReadLong( msg );
+	MSG_ReadData( msg, truncatedMsg->data, truncatedMsg->readcount );
+}
+
 /*
 ==================
 CL_ParseGamestate
@@ -748,6 +763,9 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 			break;
 		case svc_demoGamestateOverrides:
 			CL_ParseDemoGamestateOverrides( msg );
+			break;
+		case svc_demoTruncatedMessage:
+			CL_ParseDemoTruncatedMessage( msg );
 			break;
 		}
 	}
@@ -1426,6 +1444,14 @@ advanceLoop:
 		if ( !entry.eos ) {
 			ctx = &cctx->ctx;
 			msg_t *msg = ReadNextMessage( &entry );
+			if ( demo->truncatedMsg != NULL ) {
+				int len = cctx->serverMessageSequence[demo->clientnum];
+				fwrite( &len, 4, 1, outFile );
+				len = demo->truncatedMsg->cursize;
+				fwrite( &len, 4, 1, outFile );
+				fwrite( demo->truncatedMsg->data, demo->truncatedMsg->readcount, 1, outFile );
+				break;
+			}
 			if ( msg == nullptr || demo->eos ) {
 				entry.eos = qtrue;
 				break;
@@ -1436,9 +1462,11 @@ advanceLoop:
 
 	{
 		// finish up
-		int len = -1;
-		fwrite (&len, 4, 1, outFile);
-		fwrite (&len, 4, 1, outFile);
+		if ( demo->truncatedMsg == NULL ) {
+			int len = -1;
+			fwrite( &len, 4, 1, outFile );
+			fwrite( &len, 4, 1, outFile );
+		}
 	}
 
 	FS_FCloseFile( entry.fp );

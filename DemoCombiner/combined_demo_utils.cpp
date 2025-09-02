@@ -11,6 +11,48 @@
 #include <fcntl.h>
 #endif
 
+void writeTruncatedMessage( FILE* fp, int demoIdx, int serverMessageSequence, msg_t* truncatedMsg ) {
+	byte		bufData[MAX_MSGLEN];
+	msg_t	buf;
+	int			i;
+	int			len;
+	entityState_t* ent;
+	entityState_t	nullstate;
+	char* s;
+
+	// write out the gamestate message
+	MSG_Init( &buf, bufData, sizeof( bufData ) );
+	MSG_Bitstream( &buf );
+
+	// NOTE, MRE: all server->client messages now acknowledge
+	// for gamestate message, reliableAcknowledge is transmitted differently
+	int serverMessageSequenceMask = 0;
+	MSG_WriteLong( &buf, serverMessageSequenceMask );
+	int reliableAcknowledgeMask = 0;
+	MSG_WriteLong( &buf, reliableAcknowledgeMask );
+	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
+
+	// write the demo file metadata for each demo combined
+	MSG_WriteByte( &buf, svc_demoTruncatedMessage );
+	MSG_WriteByte( &buf, demoIdx );
+	MSG_WriteLong( &buf, serverMessageSequence );
+	MSG_WriteLong( &buf, truncatedMsg->readcount );  // true size
+	MSG_WriteLong( &buf, truncatedMsg->cursize );  // declared size
+	MSG_WriteData( &buf, truncatedMsg->data, truncatedMsg->readcount );
+
+	// finished writing the client packet
+	MSG_WriteByte( &buf, svc_EOF );
+
+	// write it to the demo file
+	len = LittleLong( ctx->clc.serverMessageSequence );
+	ctx->clc.serverMessageSequence++;
+	fwrite( &len, 1, 4, fp );
+
+	len = LittleLong( buf.cursize );
+	fwrite( &len, 4, 1, fp );
+	fwrite( buf.data, 1, buf.cursize, fp );
+}
+
 void writeMergedGamestateData( FILE* fp ) {
 	byte		bufData[MAX_MSGLEN];
 	msg_t	buf;
@@ -449,9 +491,13 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	// this is the snapshot we are creating
 	frame = &ctx->cl.snap;
 	if ( ctx->cl.snap.messageNum > 0 && !forceNonDelta ) {
-		lastframe = 1;
-		oldframe = &ctx->cl.snapshots[( ctx->cl.snap.messageNum - 1 ) & PACKET_MASK]; // 1 frame previous
-		if ( !oldframe->valid ) {
+		for ( lastframe = 1; lastframe < Q_min( PACKET_BACKUP - 1, ctx->cl.snap.messageNum + 1 ); lastframe++ ) {
+			oldframe = &ctx->cl.snapshots[( ctx->cl.snap.messageNum - lastframe ) & PACKET_MASK]; // 1 frame previous
+			if ( oldframe->valid && oldframe->messageNum == ctx->cl.snap.messageNum - lastframe ) {
+				break;
+			}
+		}
+		if ( !oldframe->valid || oldframe->messageNum != ctx->cl.snap.messageNum - lastframe ) {
 			// not yet set
 			lastframe = 0;
 			oldframe = NULL;

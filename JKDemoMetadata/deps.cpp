@@ -542,6 +542,7 @@ qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t *msg ) {
 		r = FS_Read( buf.data, buf.cursize, demofile );
 		if ( r != buf.cursize ) {
 			Com_Printf( "Demo file was truncated.\n");
+			buf.readcount = r;
 			return qfalse;
 		}
 

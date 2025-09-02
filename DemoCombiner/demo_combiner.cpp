@@ -52,6 +52,12 @@ msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
 	byte *msgData = (byte *) calloc( MAX_MSGLEN, 1 );
 	MSG_Init( msg, msgData, MAX_MSGLEN );
 	if ( !CL_ReadDemoMessage( demo->fp, msg ) ) {
+		if ( msg->readcount > 0 ) {
+			demo->metadata->truncatedMsg = msg;
+		} else {
+			free( msgData );
+			free( msg );
+		}
 		return nullptr;
 	}
 	return msg;
@@ -160,7 +166,7 @@ typedef struct entityAndFloat_s {
 
 typedef struct snapshotEntityNumbers_s {
 	int				numSnapshotEntities;
-	entityAndFloat_t	snapshotEntities[MAX_SNAPSHOT_ENTITIES];
+	entityAndFloat_t	snapshotEntities[MAX_SNAPSHOT_ENTITIES * 5];
 } snapshotEntityNumbers_t;
 
 /*
@@ -222,7 +228,7 @@ static void SV_AddEntToSnapshot( int sourceClient, entityState_t *ent, entitySta
 	}
 
 	// if we are full, silently discard entities
-	if ( eNums->numSnapshotEntities == MAX_SNAPSHOT_ENTITIES ) {
+	if ( eNums->numSnapshotEntities == ARRAY_LEN( eNums->snapshotEntities ) ) {
 		return;
 	}
 
@@ -623,6 +629,10 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 
 				cctx->snapFlags[entryList[idx].ctx->clc.clientNum] = dsnap->snapFlags;
 
+				if ( frameTime == 49438 && entryList[idx].ctx->clc.clientNum == 0 ) {
+					Com_Printf( "WTF snap\n" );
+				}
+
 				// add all the entities
 				for ( int entIdx = dsnap->parseEntitiesNum; entIdx < dsnap->parseEntitiesNum + dsnap->numEntities; entIdx++ ) {
 					entityState_t *ent = &dctx->cl.parseEntities[entIdx & (MAX_PARSE_ENTITIES - 1)];
@@ -723,6 +733,9 @@ advanceLoop:
 				if ( msg == nullptr ) {
 					entryList[idx].eos = qtrue;
 					entryList[idx].metadata->eos = qtrue;
+					if ( entryList[idx].metadata->truncatedMsg != NULL ) {
+						writeTruncatedMessage( outFile, idx, entryList[idx].ctx->clc.serverMessageSequence, entryList[idx].metadata->truncatedMsg );
+					}
 					continue;
 				}
 				FreeMsg( msg );
