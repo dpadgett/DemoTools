@@ -11,7 +11,37 @@
 #include <fcntl.h>
 #endif
 
-void writeTruncatedMessage( FILE* fp, int demoIdx, int serverMessageSequence, msg_t* truncatedMsg ) {
+int writeTailDataToMsg( msg_t *msg ) {
+	int numWritten = 0;
+	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
+		demoMetadata_t* demo = &cctx->demos[idx];
+		if ( !demo->eos || demo->tailSent ) {
+			continue;
+		}
+		if ( demo->tailLen == 8 && ((int *) demo->tail)[0] == -1 && ( (int*) demo->tail )[1] == -1 ) {
+			// don't write -1 -1 tail, since it is by far the most common.  instead, write if the tail is 0.
+			demo->tailSent = qtrue;
+			continue;
+		}
+		numWritten++;
+		// write the tail data.  if there was no tail, write tailLen -1.
+		MSG_WriteByte( msg, svc_demoTailData );
+		MSG_WriteByte( msg, idx );
+		if ( demo->tailLen == 0 ) {
+			MSG_WriteLong( msg, -1 );
+		} else {
+			MSG_WriteLong( msg, demo->tailLen );
+			MSG_WriteData( msg, demo->tail, demo->tailLen );
+		}
+		free( demo->tail );
+		demo->tail = NULL;
+		demo->tailLen = 0;
+		demo->tailSent = qtrue;
+	}
+	return numWritten;
+}
+
+void writeTailData( FILE* fp ) {
 	byte		bufData[MAX_MSGLEN];
 	msg_t	buf;
 	int			i;
@@ -32,13 +62,11 @@ void writeTruncatedMessage( FILE* fp, int demoIdx, int serverMessageSequence, ms
 	MSG_WriteLong( &buf, reliableAcknowledgeMask );
 	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
 
-	// write the demo file metadata for each demo combined
-	MSG_WriteByte( &buf, svc_demoTruncatedMessage );
-	MSG_WriteByte( &buf, demoIdx );
-	MSG_WriteLong( &buf, serverMessageSequence );
-	MSG_WriteLong( &buf, truncatedMsg->readcount );  // true size
-	MSG_WriteLong( &buf, truncatedMsg->cursize );  // declared size
-	MSG_WriteData( &buf, truncatedMsg->data, truncatedMsg->readcount );
+	int numWritten = writeTailDataToMsg( &buf );
+	if ( numWritten == 0 ) {
+		// there wasn't anything to write, so don't bother writing the packet
+		return;
+	}
 
 	// finished writing the client packet
 	MSG_WriteByte( &buf, svc_EOF );
@@ -440,6 +468,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	//MSG_WriteLong( msg, ctx->clc.reliableSequence );
 
 	// send which demos, if any, reached the end of their file
+	writeTailDataToMsg( msg );
 	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
 		demoMetadata_t* demo = &cctx->demos[idx];
 		if ( demo->eos && !demo->eosSent ) {

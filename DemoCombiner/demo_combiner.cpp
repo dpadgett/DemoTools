@@ -51,15 +51,23 @@ msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
 	msg_t *msg = (msg_t *) calloc( 1, sizeof( msg_t ) );
 	byte *msgData = (byte *) calloc( MAX_MSGLEN, 1 );
 	MSG_Init( msg, msgData, MAX_MSGLEN );
-	if ( !CL_ReadDemoMessage( demo->fp, msg ) ) {
-		if ( msg->readcount > 0 ) {
-			demo->metadata->truncatedMsg = msg;
-		} else {
-			free( msgData );
-			free( msg );
-		}
+	if ( !CL_ReadDemoMessageWithBuf( demo->fp, msg, &demo->metadata->tailLen, &demo->metadata->tail ) ) {
+		// make sure we reach the end of the file.  the message parsing bails at the first point it can't parse which could leave extra data.
+		int chunkSize = 1024;
+		int readCount = 0;
+		for (
+			demo->metadata->tail = (byte*) realloc( demo->metadata->tail, demo->metadata->tailLen + chunkSize );
+			( readCount = FS_Read( demo->metadata->tail + demo->metadata->tailLen, chunkSize, demo->fp ) ) > 0;
+			demo->metadata->tailLen += readCount,
+			demo->metadata->tail = (byte*) realloc( demo->metadata->tail, demo->metadata->tailLen + chunkSize ) ) {}
+
+		free( msgData );
+		free( msg );
 		return nullptr;
 	}
+	free( demo->metadata->tail );
+	demo->metadata->tail = NULL;
+	demo->metadata->tailLen = 0;
 	return msg;
 }
 
@@ -733,15 +741,14 @@ advanceLoop:
 				if ( msg == nullptr ) {
 					entryList[idx].eos = qtrue;
 					entryList[idx].metadata->eos = qtrue;
-					if ( entryList[idx].metadata->truncatedMsg != NULL ) {
-						writeTruncatedMessage( outFile, idx, entryList[idx].ctx->clc.serverMessageSequence, entryList[idx].metadata->truncatedMsg );
-					}
 					continue;
 				}
 				FreeMsg( msg );
 			}
 		}
 	}
+
+	writeTailData( outFile );
 
 	{
 		// finish up

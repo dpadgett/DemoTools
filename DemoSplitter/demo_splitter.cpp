@@ -538,19 +538,16 @@ void CL_ParseDemoGamestateOverrides( msg_t* msg ) {
 	}
 }
 
-void CL_ParseDemoTruncatedMessage( msg_t* msg ) {
+void CL_ParseTailData( msg_t* msg ) {
 	int demoIdx = MSG_ReadByte( msg );
 	demoMetadata_t* demo = &cctx->demos[demoIdx];
+	demo->tailLen = MSG_ReadLong( msg );
+	if ( demo->tailLen <= 0 ) {
+		return;
+	}
 
-	msg_t* truncatedMsg = (msg_t*) calloc( 1, sizeof( msg_t ) );
-	byte* msgData = (byte*) calloc( MAX_MSGLEN, 1 );
-	MSG_Init( truncatedMsg, msgData, MAX_MSGLEN );
-	demo->truncatedMsg = truncatedMsg;
-
-	cctx->serverMessageSequence[demo->clientnum] = MSG_ReadLong( msg );
-	truncatedMsg->readcount = MSG_ReadLong( msg );
-	truncatedMsg->cursize = MSG_ReadLong( msg );
-	MSG_ReadData( msg, truncatedMsg->data, truncatedMsg->readcount );
+	demo->tail = (byte*) calloc( demo->tailLen, 1 );
+	MSG_ReadData( msg, demo->tail, demo->tailLen );
 }
 
 /*
@@ -764,8 +761,8 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 		case svc_demoGamestateOverrides:
 			CL_ParseDemoGamestateOverrides( msg );
 			break;
-		case svc_demoTruncatedMessage:
-			CL_ParseDemoTruncatedMessage( msg );
+		case svc_demoTailData:
+			CL_ParseTailData( msg );
 			break;
 		}
 	}
@@ -1444,13 +1441,13 @@ advanceLoop:
 		if ( !entry.eos ) {
 			ctx = &cctx->ctx;
 			msg_t *msg = ReadNextMessage( &entry );
-			if ( demo->truncatedMsg != NULL ) {
-				int len = cctx->serverMessageSequence[demo->clientnum];
-				fwrite( &len, 4, 1, outFile );
-				len = demo->truncatedMsg->cursize;
-				fwrite( &len, 4, 1, outFile );
-				fwrite( demo->truncatedMsg->data, demo->truncatedMsg->readcount, 1, outFile );
-				break;
+			if ( demo->tailLen != 0 ) {
+				if ( demo->tailLen > 0 ) {  // < 0 signals no tail, == 0 signals -1 -1 tail.
+					fwrite( demo->tail, demo->tailLen, 1, outFile );
+				}
+				free( demo->tail );
+				demo->tail = NULL;
+				// demo->tailLen = 0;
 			}
 			if ( msg == nullptr || demo->eos ) {
 				entry.eos = qtrue;
@@ -1462,7 +1459,7 @@ advanceLoop:
 
 	{
 		// finish up
-		if ( demo->truncatedMsg == NULL ) {
+		if ( demo->tailLen == 0 ) {
 			int len = -1;
 			fwrite( &len, 4, 1, outFile );
 			fwrite( &len, 4, 1, outFile );

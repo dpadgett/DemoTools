@@ -7,7 +7,7 @@ enum svc_combined_ops_e {
 	svc_demoEnded,
 	svc_demoGamestate,
 	svc_demoGamestateOverrides,
-	svc_demoTruncatedMessage,
+	svc_demoTailData,
 };
 
 // metadata for the gamestate message
@@ -32,7 +32,9 @@ typedef struct demoMetadata_s {
 	// whether the file reached the end of stream
 	qboolean eos;
 	qboolean eosSent;
-	msg_t* truncatedMsg;  // set if file ended in a truncated message
+	int tailLen;  // set if file ended with extra bytes
+	byte* tail;
+	qboolean tailSent;
 } demoMetadata_t;
 
 typedef struct combinedDemoContext_s {

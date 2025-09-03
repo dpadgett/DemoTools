@@ -505,7 +505,7 @@ void BG_PlayerStateToEntityStateExtraPolate( playerState_t *ps, entityState_t *s
 CL_ReadDemoMessage
 =================
 */
-qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t *msg ) {
+qboolean CL_ReadDemoMessageWithBuf( fileHandle_t demofile, msg_t *msg, int* bufLen, byte** readBuf ) {
 	try {
 		int			r;
 		msg_t		&buf = *msg;
@@ -516,8 +516,13 @@ qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t *msg ) {
 			return qfalse;
 		}
 
+		*bufLen = 0;
+		*readBuf = (byte *)calloc( 8, 1 );
+
 		// get the sequence number
-		r = FS_Read( &s, 4, demofile);
+		r = FS_Read( *readBuf, 4, demofile);
+		*bufLen += r;
+		s = *(int*) *readBuf;
 		if ( r != 4 ) {
 			return qfalse;
 		}
@@ -528,10 +533,12 @@ qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t *msg ) {
 		// msg should be passed in initialized
 
 		// get the length
-		r = FS_Read (&buf.cursize, 4, demofile);
+		r = FS_Read (*readBuf + 4, 4, demofile);
+		*bufLen += r;
 		if ( r != 4 ) {
 			return qfalse;
 		}
+		buf.cursize = *(int*) ( *readBuf + 4 );
 		buf.cursize = LittleLong( buf.cursize );
 		if ( buf.cursize == -1 ) {
 			return qfalse;
@@ -539,10 +546,12 @@ qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t *msg ) {
 		if ( buf.cursize > buf.maxsize ) {
 			Com_Error (ERR_DROP, "CL_ReadDemoMessage: demoMsglen > MAX_MSGLEN");
 		}
-		r = FS_Read( buf.data, buf.cursize, demofile );
+		*readBuf = (byte *) realloc( *readBuf, 8 + buf.cursize );
+		r = FS_Read( *readBuf + 8, buf.cursize, demofile );
+		*bufLen += r;
+		memcpy( buf.data, *readBuf + 8, r );
 		if ( r != buf.cursize ) {
 			Com_Printf( "Demo file was truncated.\n");
-			buf.readcount = r;
 			return qfalse;
 		}
 
@@ -554,6 +563,14 @@ qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t *msg ) {
 		Com_Printf( "Demo terminated by code %d\n", code );
 		return qfalse;
 	}
+}
+
+qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t* msg ) {
+	int bufLen = 0;
+	byte* readBuf;
+	qboolean ret = CL_ReadDemoMessageWithBuf( demofile, msg, &bufLen, &readBuf );
+	free( readBuf );
+	return ret;
 }
 
 float vectoyaw( const vec3_t vec ) {

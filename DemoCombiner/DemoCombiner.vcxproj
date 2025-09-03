@@ -44,7 +44,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>D:\Users\dan\Downloads\jansson-2.5\src;..\JKDemoMetadata;..\OpenJK\codemp;..\OpenJK\shared;..\DemoTrimmer;..\DemoCombiner;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Users\dan\Downloads\jansson-2.5\src;..\JKDemoMetadata;..\OpenJK\codemp;..\OpenJK\shared;..\DemoTrimmer;..\DemoCombiner;..\DemoCombiner;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -58,7 +58,7 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <AdditionalIncludeDirectories>D:\Users\dan\Downloads\jansson-2.5\src;..\JKDemoMetadata;..\OpenJK\codemp;..\OpenJK\shared;..\DemoTrimmer;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Users\dan\Downloads\jansson-2.5\src;..\JKDemoMetadata;..\OpenJK\codemp;..\OpenJK\shared;..\DemoTrimmer;..\DemoCombiner;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
