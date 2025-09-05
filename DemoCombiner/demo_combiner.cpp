@@ -469,7 +469,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			}*/
 		}
 		// numMatches must always be >0
-		ctx = entryList[mergedCtx.matches[0]].ctx;
+		//ctx = entryList[mergedCtx.matches[0]].ctx;
 		// note: below advancing commented out because we still need to run through the server commands
 		// to pick up updated configstrings
 		/*if ( !playerActive( clientNum ) ) {
@@ -515,7 +515,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					start = firstServerCommand;
 				}
 				for ( int snapCmdNum = start; snapCmdNum <= ctx->clc.serverCommandSequence; snapCmdNum++ ) {
-					if ( !Q_stricmpn( command, ctx->clc.serverCommands[snapCmdNum & ( MAX_RELIABLE_COMMANDS - 1 )], MAX_STRING_CHARS ) ) {
+					if ( !Q_strncmp( command, ctx->clc.serverCommands[snapCmdNum & ( MAX_RELIABLE_COMMANDS - 1 )], MAX_STRING_CHARS ) ) {
 						newCommand = qfalse;
 						mergedCtx.serverCommandBitmask[snapCmdNum % MAX_RELIABLE_COMMANDS] |= 1 << entryList[idx].ctx->clc.clientNum;
 						curCommand = snapCmdNum + 1;
@@ -573,6 +573,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			if ( ctx->cl.gameState.dataCount != entryCtx->cl.gameState.dataCount
 				|| memcmp( ctx->cl.gameState.stringData, entryCtx->cl.gameState.stringData, ctx->cl.gameState.dataCount )
 				|| memcmp( ctx->cl.gameState.stringOffsets, entryCtx->cl.gameState.stringOffsets, sizeof( ctx->cl.gameState.stringOffsets ) ) ) {
+				// TODO: we might need to execute any configstring server commands this client got in its gamestate message on the merged ctx to reduce the number of discrepancies here
 				Com_Printf( "configstrings differ!\n" );
 				for ( int i = 0; i < MAX_CONFIGSTRINGS; i++ ) {
 					char* orig = entryCtx->cl.gameState.stringData + entryCtx->cl.gameState.stringOffsets[i];
@@ -785,7 +786,7 @@ advanceLoop:
 
 int main(int argc, char** argv)
 {
-	if ( argc < 4 ) {
+	if ( argc < 3 ) {
 		printf( "No file specified.\n"
 				"Usage: \"%s\" demo1.dm_26 demo2.dm_26 ... demoN.dm_26 outfile.dm_26\n"
 				"Note: all demoI.dm_26 should be from the same game\n", argv[0] );

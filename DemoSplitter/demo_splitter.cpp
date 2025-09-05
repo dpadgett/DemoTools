@@ -1183,6 +1183,18 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 				continue;
 			}
 			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[idx];
+
+			// update any configstrings up to the gamestate's command sequence number
+			for ( int commandNum = firstServerCommand; commandNum <= gamestateMetadata->serverCommandSequence; commandNum++, firstServerCommand++ ) {
+				char* command = entry.ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+
+				Cmd_TokenizeString( command );
+				char* cmd = Cmd_Argv( 0 );
+				if ( !strcmp( cmd, "cs" ) ) {
+					CL_ConfigstringModified();
+				}
+			}
+
 			if ( framesSaved == 0 && gamestateMetadata->numConfigStringOverrides > 0 ) {
 				// handle any overridden configstrings
 				for ( int i = 0; i < gamestateMetadata->numConfigStringOverrides; i++ ) {
