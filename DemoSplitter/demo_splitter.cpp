@@ -383,8 +383,11 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 			if ( cctx->playerStateValidMask & ( 1 << i ) ) {
 				oldps = &cctx->playerStates[psIdx ^ 1][i];
 				oldpsff = &cctx->playerStatesForcedFields[psIdx ^ 1][i];
-				oldvps = &cctx->vehPlayerStates[psIdx ^ 1][i];
-				oldvpsff = &cctx->vehPlayerStatesForcedFields[psIdx ^ 1][i];
+				if ( oldps->m_iVehicleNum ) {
+					// leave null if oldps didn't have a vehicle
+					oldvps = &cctx->vehPlayerStates[psIdx ^ 1][i];
+					oldvpsff = &cctx->vehPlayerStatesForcedFields[psIdx ^ 1][i];
+				}
 			}
 			MSG_ReadDeltaPlayerstate( msg, oldps, ps );
 			MSG_ReadDeltaPlayerstate( msg, oldpsff, psff );

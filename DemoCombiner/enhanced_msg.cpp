@@ -749,7 +749,7 @@ void MSG_ReadDeltaPlayerstateWithForcedFields( msg_t * msg, playerState_t * from
 	}
 	*to = *from;
 
-	if ( from->commandTime == 765134 ) {
+	if ( from->commandTime == 1828461 ) {
 		Com_Printf( "WTF4?\n" );
 	}
 
@@ -801,8 +801,11 @@ void MSG_ReadDeltaPlayerstateWithForcedFields( msg_t * msg, playerState_t * from
 		Com_Error( ERR_DROP, "invalid playerState field count (got: %i, expecting: %i)", lc, numFields );
 
 	for ( i = 0, field = PSFields; i < lc; i++, field++ ) {
-		if ( i > 0 && *toF == 765062 ) {
+		if ( i > 0 && *toF == 3004388 ) {
 			Com_Printf( "WTF5?\n" );
+		}
+		if ( i > 0 && *toF == 1828461 && isVehiclePS ) {
+			Com_Printf( "WTF14?\n" );
 		}
 		fromF = (int*) ( (byte*) from + field->offset );
 		toF = (int*) ( (byte*) to + field->offset );
@@ -870,6 +873,12 @@ void MSG_ReadDeltaPlayerstateWithForcedFields( msg_t * msg, playerState_t * from
 	}
 
 	// read the arrays
+	if ( forcedFields ) {
+		Com_Memset( forcedFields->stats, 0, sizeof( forcedFields->stats ) );
+		Com_Memset( forcedFields->persistant, 0, sizeof( forcedFields->persistant ) );
+		Com_Memset( forcedFields->ammo, 0, sizeof( forcedFields->ammo ) );
+		Com_Memset( forcedFields->powerups, 0, sizeof( forcedFields->powerups ) );
+	}
 	if ( MSG_ReadBits( msg, 1 ) ) {
 		// parse stats
 		if ( MSG_ReadBits( msg, 1 ) ) {

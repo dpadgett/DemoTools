@@ -625,7 +625,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 						MSG_WriteDeltaPlayerstate( msg, NULL, vps, NULL, NULL, qtrue );
 		#else
 						MSG_WriteDeltaPlayerstate( msg, NULL, vps, qtrue );
-						MSG_WriteDeltaPlayerstateForcedFields( msg, NULL, vps, qtrue );
+						MSG_WriteDeltaPlayerstateForcedFields( msg, NULL, vpsff, qtrue );
 #endif
 					}
 					else
@@ -652,7 +652,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 					MSG_WriteDeltaPlayerstate( msg, NULL, &frame->vps, NULL, NULL, qtrue );
 		#else
 					MSG_WriteDeltaPlayerstate( msg, NULL, vps, qtrue );
-					MSG_WriteDeltaPlayerstateForcedFields( msg, NULL, vps, qtrue );
+					MSG_WriteDeltaPlayerstateForcedFields( msg, NULL, vpsff, qtrue );
 #endif
 				}
 			}
