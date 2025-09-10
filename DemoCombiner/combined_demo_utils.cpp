@@ -471,12 +471,10 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	writeTailDataToMsg( msg );
 	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
 		demoMetadata_t* demo = &cctx->demos[idx];
-		if ( demo->eos && !demo->eosSent ) {
-			MSG_WriteByte( msg, svc_demoEnded ); 
-			MSG_WriteByte( msg, idx );
-			demo->eosSent = qtrue;
+		if ( demo->lastGamestate != NULL && demo->firstFrameTime == -1 ) {
+			demo->firstFrameTime = ctx->cl.snap.serverTime;
 		}
-		if ( demo->firstFrameTime == ctx->cl.snap.serverTime && demo->lastGamestate->numConfigStringOverrides > 0 ) {
+		if ( demo->lastGamestate != NULL && demo->firstFrameTime == ctx->cl.snap.serverTime && demo->lastGamestate->numConfigStringOverrides > 0 ) {
 			// demo's first frame, send if any configstrings didn't match the demo's gamestate.
 			// (could happen from packet loss)
 			MSG_WriteByte( msg, svc_demoGamestateOverrides );
@@ -486,6 +484,11 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 				MSG_WriteShort( msg, demo->lastGamestate->configStringOverrideIndex[i] );
 				MSG_WriteString( msg, demo->lastGamestate->configStringOverride[i] );
 			}
+		}
+		if ( demo->eos && !demo->eosSent ) {
+			MSG_WriteByte( msg, svc_demoEnded );
+			MSG_WriteByte( msg, idx );
+			demo->eosSent = qtrue;
 		}
 	}
 

@@ -268,7 +268,7 @@ entityState_t makerEnts[MAX_GENTITIES];
 
 int main( int argc, char **argv ) {
 	memset( playerHistory, 0, sizeof( playerHistory ) );
-	cl_shownet->integer = 0;
+	cl_shownet->integer = 3;
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
 	if ( argc < 2 ) {
 		printf( "No file specified.\n"
@@ -384,7 +384,7 @@ int main( int argc, char **argv ) {
 			continue;
 		}
 		int readCount = FS_ReadCount( fp );
-		if ( readCount >= 0x00faa9a0 - 0x100 ) {
+		if ( readCount >= 0x00005570 - 0x100 ) {
 				cl_shownet->integer = 3;
 		}
 		if ( cl_shownet->integer >= 3 ) {

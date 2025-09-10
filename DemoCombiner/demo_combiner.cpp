@@ -29,7 +29,6 @@ typedef struct {
 	char filename[MAX_OSPATH];
 	fileHandle_t fp;
 	demoContext_t *ctx;
-	int firstServerCommand;
 	int framesSaved;
 	int currentMap;
 	qboolean eos;
@@ -42,6 +41,9 @@ typedef struct {
 } demoEntry_t;
 
 void FreeMsg( msg_t *msg ) {
+	if ( !msg ) {
+		return;
+	}
 	free( msg->data );
 	free( msg );
 }
@@ -73,11 +75,13 @@ msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
 
 msg_t *ReadNextMessage( demoEntry_t *demo ) {
 	msg_t *msg;
+	msg_t* lastmsg = nullptr;
 	int entityEventSequence = 0;
 	if ( ctx->cl.snap.valid ) {
 		entityEventSequence = ctx->cl.snap.ps.entityEventSequence;
 	}
 	ctx->cl.newSnapshots = qfalse;
+	ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence + 1;
 	while ( ( msg = ReadNextMessageRaw( demo ) ) != nullptr ) {
 		int lastSnapFlags = ctx->cl.snap.snapFlags;
 		qboolean lastSnapValid = ctx->cl.snap.valid;
@@ -85,8 +89,20 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			CL_ParseServerMessage( msg );
 		} catch ( int ) {
 			// thrown code means it wasn't a fatal error, so we can still dump what we had
-			FreeMsg( msg );
-			return nullptr;
+			return msg;
+		}
+
+		if ( ctx->clc.lastExecutedServerCommand == 0 && demo->metadata->lastGamestate->serverCommandSequence > 0 ) {
+			ctx->clc.lastExecutedServerCommand = demo->metadata->lastGamestate->serverReliableAcknowledge + 1;
+		}
+		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_RELIABLE_COMMANDS ) {
+			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10; // fudge factor
+			for ( ; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
+				char* command = ctx->clc.serverCommands[ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
+				if ( command[0] ) {
+					break;
+				}
+			}
 		}
 
 		if ( !ctx->cl.newSnapshots ) {
@@ -99,39 +115,18 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			gamestateMetadata->reliableAcknowledge = ctx->clc.reliableAcknowledge;
 			gamestateMetadata->messageExtraByte = ctx->messageExtraByte;
 			demo->metadata->lastGamestate = gamestateMetadata;
-			FreeMsg( msg );
+			FreeMsg( lastmsg );
+			lastmsg = msg;
 			continue;
 		}
 		ctx->cl.snap.ps.entityEventSequence = entityEventSequence;
 		if ( lastSnapValid && ( ( lastSnapFlags ^ ctx->cl.snap.snapFlags ) & SNAPFLAG_SERVERCOUNT ) != 0 ) {
 			demo->currentMap++;
 		}
-		if ( ctx->clc.lastExecutedServerCommand == 0 && demo->metadata->lastGamestate->serverCommandSequence > 0 ) {
-			ctx->clc.lastExecutedServerCommand = demo->metadata->lastGamestate->serverReliableAcknowledge + 1;
-		}
-		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_RELIABLE_COMMANDS ) {
-			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10; // fudge factor
-		}
-		demo->firstServerCommand = ctx->clc.lastExecutedServerCommand;
-		int firstNonEmptyCommand = 0;
-		// process any new server commands
-		for ( ; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
-			char *command = ctx->clc.serverCommands[ ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 ) ];
-			Cmd_TokenizeString( command );
-			char *cmd = Cmd_Argv( 0 );
-			if ( cmd[0] && firstNonEmptyCommand == 0 ) {
-				firstNonEmptyCommand = ctx->clc.lastExecutedServerCommand;
-			}
-			if ( !strcmp( cmd, "cs" ) ) {
-				//CL_ConfigstringModified();
-			}
-		}
-		if ( demo->firstServerCommand == ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10 && firstNonEmptyCommand > 0 ) {
-			demo->firstServerCommand = firstNonEmptyCommand;
-		}
+
 		return msg;
 	}
-	return nullptr;
+	return lastmsg;
 }
 
 // returns true if demo context could be parsed
@@ -140,6 +135,7 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 	demoContext_t *oldCtx;
 	oldCtx = ctx;
 	ctx = demo->ctx;
+	demo->metadata->clientnum = -1;
 	// load initial state from demo
 	msg_t *msg;
 	if ( ( msg = ReadNextMessage( demo ) ) != nullptr ) {
@@ -148,6 +144,9 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 		FreeMsg( msg );
 		return qtrue;
 	}
+	demo->metadata->firstFrameTime = -1;
+	demo->eos = qtrue;
+	demo->metadata->eos = qtrue;
 	ctx = oldCtx;
 	return qfalse;
 }
@@ -374,7 +373,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 	for ( idx = 0; idx < numDemos; idx++ ) {
 		if ( !ParseDemoContext( &entryList[idx] ) ) {
 			printf( "Failed to parse demo context for demo %s, index %d\n", entryList[idx].filename, idx );
-			return -1;
+			// return -1;
 		}
 	}
 	// start with a base ctx
@@ -384,7 +383,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		int minTime = entryList[0].ctx->cl.snap.serverTime;
 		int minIdx = 0;
 		for ( idx = 0; idx < numDemos; idx++ ) {
-			if ( entryList[idx].ctx->cl.snap.serverTime < minTime ) {
+			if ( !entryList[idx].eos && entryList[idx].ctx->cl.snap.serverTime < minTime ) {
 				minTime = entryList[idx].ctx->cl.snap.serverTime;
 				minIdx = idx;
 			}
@@ -501,7 +500,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			int curCommand = firstServerCommand;
 			idx = mergedCtx.matches[matchIdx];
 			demoContext_t* entryCtx = entryList[idx].ctx;
-			for ( int commandNum = entryList[idx].firstServerCommand; commandNum <= entryCtx->clc.serverCommandSequence; commandNum++ ) {
+			for ( int commandNum = entryCtx->clc.lastExecutedServerCommand; commandNum <= entryCtx->clc.serverCommandSequence; commandNum++ ) {
 				char* command = entryCtx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
 				Cmd_TokenizeString( command );
 				char* cmd = Cmd_Argv( 0 );
@@ -587,10 +586,30 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 				}
 			}
 		}
+		char bigConfigString[BIG_INFO_STRING];
 		for ( int commandNum = firstServerCommandToExecute; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
 			char* command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
 			Cmd_TokenizeString( command );
 			char* cmd = Cmd_Argv( 0 );
+			if ( !strcmp( cmd, "bcs0" ) ) {
+				Com_sprintf( bigConfigString, BIG_INFO_STRING, "cs %s \"%s", Cmd_Argv( 1 ), Cmd_Argv( 2 ) );
+			} else if ( !strcmp( cmd, "bcs1" ) ) {
+				char *s = Cmd_Argv( 2 );
+				if ( strlen( bigConfigString ) + strlen( s ) >= BIG_INFO_STRING ) {
+					Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+				}
+				strcat( bigConfigString, s );
+			} else if ( !strcmp( cmd, "bcs2" ) ) {
+				char *s = Cmd_Argv( 2 );
+				if ( strlen( bigConfigString ) + strlen( s ) + 1 >= BIG_INFO_STRING ) {
+					Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+				}
+				strcat( bigConfigString, s );
+				strcat( bigConfigString, "\"" );
+				command = bigConfigString;
+				Cmd_TokenizeString( command );
+				cmd = Cmd_Argv( 0 );
+			}
 			if ( !strcmp( cmd, "cs" ) ) {
 				// needed so util funcs can work against mergedCtx
 				CL_ConfigstringModified();

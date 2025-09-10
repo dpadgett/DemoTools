@@ -1058,10 +1058,12 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 		return -1;
 	}
 
-	entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
-	entry.ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
-	entry.ctx->clc.serverCommandSequence--;
-	entry.ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
+	if ( demo->lastGamestate ) {
+		entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
+		entry.ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
+		entry.ctx->clc.serverCommandSequence--;
+		entry.ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
+	}
 	ctx = &mergedCtx.ctx;
 	int serverCommandOffset = 0;
 	int framesSaved = 0;
@@ -1181,6 +1183,8 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 			Q_strncpyz( entry.ctx->clc.serverCommands[entry.ctx->clc.serverCommandSequence & ( MAX_RELIABLE_COMMANDS - 1 )], command, MAX_STRING_CHARS );
 		}
 
+		char bigConfigString[BIG_INFO_STRING];
+
 		for ( int idx = cctx->numHandledGamestates; idx < cctx->numGamestates; idx++, cctx->numHandledGamestates++ ) {
 			if ( cctx->gamestates[idx].demoIdx != demoIdx ) {
 				continue;
@@ -1193,6 +1197,27 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 
 				Cmd_TokenizeString( command );
 				char* cmd = Cmd_Argv( 0 );
+				if ( !strcmp( cmd, "bcs0" ) ) {
+					Com_sprintf( bigConfigString, BIG_INFO_STRING, "cs %s \"%s", Cmd_Argv( 1 ), Cmd_Argv( 2 ) );
+				}
+				else if ( !strcmp( cmd, "bcs1" ) ) {
+					char* s = Cmd_Argv( 2 );
+					if ( strlen( bigConfigString ) + strlen( s ) >= BIG_INFO_STRING ) {
+						Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+					}
+					strcat( bigConfigString, s );
+				}
+				else if ( !strcmp( cmd, "bcs2" ) ) {
+					char* s = Cmd_Argv( 2 );
+					if ( strlen( bigConfigString ) + strlen( s ) + 1 >= BIG_INFO_STRING ) {
+						Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+					}
+					strcat( bigConfigString, s );
+					strcat( bigConfigString, "\"" );
+					command = bigConfigString;
+					Cmd_TokenizeString( command );
+					cmd = Cmd_Argv( 0 );
+				}
 				if ( !strcmp( cmd, "cs" ) ) {
 					CL_ConfigstringModified();
 				}
@@ -1229,6 +1254,27 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 
 			Cmd_TokenizeString( command );
 			char* cmd = Cmd_Argv( 0 );
+			if ( !strcmp( cmd, "bcs0" ) ) {
+				Com_sprintf( bigConfigString, BIG_INFO_STRING, "cs %s \"%s", Cmd_Argv( 1 ), Cmd_Argv( 2 ) );
+			}
+			else if ( !strcmp( cmd, "bcs1" ) ) {
+				char* s = Cmd_Argv( 2 );
+				if ( strlen( bigConfigString ) + strlen( s ) >= BIG_INFO_STRING ) {
+					Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+				}
+				strcat( bigConfigString, s );
+			}
+			else if ( !strcmp( cmd, "bcs2" ) ) {
+				char* s = Cmd_Argv( 2 );
+				if ( strlen( bigConfigString ) + strlen( s ) + 1 >= BIG_INFO_STRING ) {
+					Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+				}
+				strcat( bigConfigString, s );
+				strcat( bigConfigString, "\"" );
+				command = bigConfigString;
+				Cmd_TokenizeString( command );
+				cmd = Cmd_Argv( 0 );
+			}
 			if ( !strcmp( cmd, "cs" ) ) {
 				CL_ConfigstringModified();
 			}
