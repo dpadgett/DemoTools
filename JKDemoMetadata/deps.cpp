@@ -516,13 +516,18 @@ qboolean CL_ReadDemoMessageWithBuf( fileHandle_t demofile, msg_t *msg, int* bufL
 			return qfalse;
 		}
 
-		*bufLen = 0;
-		*readBuf = (byte *)calloc( 8, 1 );
+		// non-zero bufLen to concat to an existing buffer
+		if ( *bufLen == 0 ) {
+			*bufLen = 0;
+			*readBuf = (byte*) calloc( 8, 1 );
+		} else {
+			*readBuf = (byte*) realloc( *readBuf, *bufLen + 8 );
+		}
 
 		// get the sequence number
-		r = FS_Read( *readBuf, 4, demofile);
+		r = FS_Read( *readBuf + *bufLen, 4, demofile);
+		s = *(int*) (*readBuf + *bufLen);
 		*bufLen += r;
-		s = *(int*) *readBuf;
 		if ( r != 4 ) {
 			return qfalse;
 		}
@@ -533,12 +538,12 @@ qboolean CL_ReadDemoMessageWithBuf( fileHandle_t demofile, msg_t *msg, int* bufL
 		// msg should be passed in initialized
 
 		// get the length
-		r = FS_Read (*readBuf + 4, 4, demofile);
+		r = FS_Read ( *readBuf + *bufLen, 4, demofile);
 		*bufLen += r;
 		if ( r != 4 ) {
 			return qfalse;
 		}
-		buf.cursize = *(int*) ( *readBuf + 4 );
+		buf.cursize = *(int*) ( *readBuf + *bufLen - 4 );
 		buf.cursize = LittleLong( buf.cursize );
 		if ( buf.cursize == -1 ) {
 			return qfalse;
@@ -546,10 +551,10 @@ qboolean CL_ReadDemoMessageWithBuf( fileHandle_t demofile, msg_t *msg, int* bufL
 		if ( buf.cursize > buf.maxsize ) {
 			Com_Error (ERR_DROP, "CL_ReadDemoMessage: demoMsglen > MAX_MSGLEN");
 		}
-		*readBuf = (byte *) realloc( *readBuf, 8 + buf.cursize );
-		r = FS_Read( *readBuf + 8, buf.cursize, demofile );
+		*readBuf = (byte *) realloc( *readBuf, *bufLen + buf.cursize );
+		r = FS_Read( *readBuf + *bufLen, buf.cursize, demofile );
+		memcpy( buf.data, *readBuf + *bufLen, r );
 		*bufLen += r;
-		memcpy( buf.data, *readBuf + 8, r );
 		if ( r != buf.cursize ) {
 			Com_Printf( "Demo file was truncated.\n");
 			return qfalse;

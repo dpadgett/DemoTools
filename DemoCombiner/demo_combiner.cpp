@@ -49,6 +49,7 @@ void FreeMsg( msg_t *msg ) {
 }
 
 // returns demoFinished
+// caller must free demo tail if not wanted
 msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
 	msg_t *msg = (msg_t *) calloc( 1, sizeof( msg_t ) );
 	byte *msgData = (byte *) calloc( MAX_MSGLEN, 1 );
@@ -67,9 +68,9 @@ msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
 		free( msg );
 		return nullptr;
 	}
-	free( demo->metadata->tail );
-	demo->metadata->tail = NULL;
-	demo->metadata->tailLen = 0;
+	// free( demo->metadata->tail );
+	// demo->metadata->tail = NULL;
+	// demo->metadata->tailLen = 0;
 	return msg;
 }
 
@@ -82,6 +83,8 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 	}
 	ctx->cl.newSnapshots = qfalse;
 	ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence + 1;
+	// only append the gamestates if a frame is found after them.  otherwise, the splitter won't write them out
+	int gamestateIdx = cctx->numGamestates;
 	while ( ( msg = ReadNextMessageRaw( demo ) ) != nullptr ) {
 		int lastSnapFlags = ctx->cl.snap.snapFlags;
 		qboolean lastSnapValid = ctx->cl.snap.valid;
@@ -107,7 +110,7 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 
 		if ( !ctx->cl.newSnapshots ) {
 			demo->metadata->clientnum = ctx->clc.clientNum;
-			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[cctx->numGamestates++];
+			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[gamestateIdx++];
 			gamestateMetadata->demoIdx = demo->metadata - cctx->demos;
 			gamestateMetadata->serverMessageSequence = ctx->clc.serverMessageSequence;
 			gamestateMetadata->serverReliableAcknowledge = ctx->serverReliableAcknowledge;
@@ -124,8 +127,16 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			demo->currentMap++;
 		}
 
+		// we found a snapshot, so delete the message buffer
+		free( demo->metadata->tail );
+		demo->metadata->tail = NULL;
+		demo->metadata->tailLen = 0;
+
+		// commit gamestates
+		cctx->numGamestates = gamestateIdx;
 		return msg;
 	}
+	// we didn't find a snapshot.  any other messages are concat into the demo tail.
 	return lastmsg;
 }
 
@@ -140,6 +151,11 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 	msg_t *msg;
 	if ( ( msg = ReadNextMessage( demo ) ) != nullptr ) {
 		demo->metadata->firstFrameTime = ctx->cl.snap.serverTime;
+		if ( !ctx->cl.newSnapshots ) {
+			demo->metadata->firstFrameTime = -1;
+			demo->eos = qtrue;
+			demo->metadata->eos = qtrue;
+		}
 		ctx = oldCtx;
 		FreeMsg( msg );
 		return qtrue;

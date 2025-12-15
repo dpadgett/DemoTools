@@ -384,7 +384,7 @@ int main( int argc, char **argv ) {
 			continue;
 		}
 		int readCount = FS_ReadCount( fp );
-		if ( readCount >= 0x00005570 - 0x100 ) {
+		if ( readCount >= 0x00001f10 - 0x100 ) {
 				cl_shownet->integer = 3;
 		}
 		if ( cl_shownet->integer >= 3 ) {
