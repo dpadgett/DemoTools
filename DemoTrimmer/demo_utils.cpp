@@ -36,7 +36,9 @@ void writeDemoHeaderToMsg(msg_t *msg, int serverCommandSequence) {
 		MSG_WriteShort ( msg, i);
 		MSG_WriteBigString ( msg, s);
 
-		Com_Printf( "%3i: %d: %s\n", start, i, s );
+		if ( cl_shownet->integer >= 2 ) {
+			Com_Printf( "%3i: %d: %s\n", start, i, s );
+		}
 	}
 
 	// baselines
@@ -47,7 +49,9 @@ void writeDemoHeaderToMsg(msg_t *msg, int serverCommandSequence) {
 			continue;
 		}
 		MSG_WriteByte ( msg, svc_baseline);
-		Com_Printf( "baseline %3i: %d\n", msg->cursize, ent->number );
+		if ( cl_shownet->integer >= 2 ) {
+			Com_Printf( "baseline %3i: %d\n", msg->cursize, ent->number );
+		}
 		MSG_WriteDeltaEntity ( msg, &nullstate, ent, qtrue );
 	}
 

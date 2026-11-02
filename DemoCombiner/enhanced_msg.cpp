@@ -133,7 +133,7 @@ void MSG_WriteDeltaEntityWithFloatsForcedOrFloatForced( msg_t* msg, struct entit
 			forceFloat = *floatForcedF == 1 /* && *toF == 0 */ ? qtrue : qfalse;
 		}
 
-		if ( forceFloat ) {
+		if ( forceFloat && cl_shownet && cl_shownet->integer >= 2 ) {
 			Com_Printf( "Forcing float for %s\n", field->name );
 		}
 
@@ -545,7 +545,7 @@ void MSG_WriteDeltaPlayerstateWithFieldsForcedOrWriteForcedFields( msg_t * msg, 
 		if ( forcedFields ) {
 			forcedFieldF = (int*) ( (byte*) forcedFields + field->offset );
 			isForced = *forcedFieldF == 0 ? qfalse : qtrue;
-			if ( isForced ) {
+			if ( isForced && cl_shownet && cl_shownet->integer >= 2 ) {
 				Com_Printf( "Forcing playerState field %s:%d\n", field->name, *toF );
 			}
 		}
@@ -586,7 +586,7 @@ void MSG_WriteDeltaPlayerstateWithFieldsForcedOrWriteForcedFields( msg_t * msg, 
 	//
 	statsbits = 0;
 	for ( i = 0; i < MAX_STATS; i++ ) {
-		if ( forcedFields && forcedFields->stats[i] ) {
+		if ( forcedFields && forcedFields->stats[i] && cl_shownet && cl_shownet->integer >= 2 ) {
 			Com_Printf( "Forcing playerState stat %d\n", i );
 		}
 		if ( to->stats[i] != from->stats[i] || ( forcedFields && forcedFields->stats[i] ) ) {
@@ -595,7 +595,7 @@ void MSG_WriteDeltaPlayerstateWithFieldsForcedOrWriteForcedFields( msg_t * msg, 
 	}
 	persistantbits = 0;
 	for ( i = 0; i < MAX_PERSISTANT; i++ ) {
-		if ( forcedFields && forcedFields->persistant[i] ) {
+		if ( forcedFields && forcedFields->persistant[i] && cl_shownet && cl_shownet->integer >= 2 ) {
 			Com_Printf( "Forcing playerState persistant %d\n", i );
 		}
 		if ( to->persistant[i] != from->persistant[i] || ( forcedFields && forcedFields->persistant[i] ) ) {
@@ -604,7 +604,7 @@ void MSG_WriteDeltaPlayerstateWithFieldsForcedOrWriteForcedFields( msg_t * msg, 
 	}
 	ammobits = 0;
 	for ( i = 0; i < MAX_AMMO_TRANSMIT; i++ ) {
-		if ( forcedFields && forcedFields->ammo[i] ) {
+		if ( forcedFields && forcedFields->ammo[i] && cl_shownet && cl_shownet->integer >= 2 ) {
 			Com_Printf( "Forcing playerState ammo %d\n", i );
 		}
 		if ( to->ammo[i] != from->ammo[i] || ( forcedFields && forcedFields->ammo[i] ) ) {
@@ -613,7 +613,7 @@ void MSG_WriteDeltaPlayerstateWithFieldsForcedOrWriteForcedFields( msg_t * msg, 
 	}
 	powerupbits = 0;
 	for ( i = 0; i < MAX_POWERUPS; i++ ) {
-		if ( forcedFields && forcedFields->powerups[i] ) {
+		if ( forcedFields && forcedFields->powerups[i] && cl_shownet && cl_shownet->integer >= 2 ) {
 			Com_Printf( "Forcing playerState powerups %d\n", i );
 		}
 		if ( to->powerups[i] != from->powerups[i] || ( forcedFields && forcedFields->powerups[i] ) ) {
