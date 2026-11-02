@@ -1378,7 +1378,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 					Cmd_TokenizeString( command );
 					cmd = Cmd_Argv( 0 );
 				}
-				if ( !strcmp( cmd, "cs" ) ) {
+				if ( framesSaved > 0 && !strcmp( cmd, "cs" ) ) {
 					CL_ConfigstringModified();
 				}
 			}

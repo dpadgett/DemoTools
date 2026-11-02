@@ -608,7 +608,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			}
 		}
 		char bigConfigString[BIG_INFO_STRING];
-		for ( int commandNum = firstServerCommandToExecute; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
+		for ( int commandNum = firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
 			char* command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
 			Cmd_TokenizeString( command );
 			char* cmd = Cmd_Argv( 0 );
