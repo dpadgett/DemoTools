@@ -42,7 +42,7 @@ int writeTailDataToMsg( msg_t *msg ) {
 }
 
 void writeTailData( FILE* fp ) {
-	byte		bufData[MAX_MSGLEN];
+	static byte	bufData[MAX_COMBINED_MSGLEN];
 	msg_t	buf;
 	int			i;
 	int			len;
@@ -82,7 +82,7 @@ void writeTailData( FILE* fp ) {
 }
 
 void writeMergedGamestateData( FILE* fp ) {
-	byte		bufData[MAX_MSGLEN];
+	static byte	bufData[MAX_COMBINED_MSGLEN];
 	msg_t	buf;
 	int			i;
 	int			len;
@@ -128,7 +128,7 @@ void writeMergedGamestateData( FILE* fp ) {
 }
 
 void writeMergedDemoHeader( FILE* fp ) {
-	byte		bufData[MAX_MSGLEN];
+	static byte	bufData[MAX_COMBINED_MSGLEN];
 	msg_t	buf;
 	int			i;
 	int			len;
@@ -590,7 +590,7 @@ static void WriteDeltaOrRawServerCommand( msg_t* msg, const char* command ) {
 
 void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceNonDelta, int serverCommandOffset ) {
 	msg_t				msgImpl, * msg = &msgImpl;
-	byte				msgData[MAX_MSGLEN];
+	static byte			msgData[MAX_COMBINED_MSGLEN];
 	clSnapshot_t* frame, * oldframe;
 	int					lastframe = 0;
 	int					snapFlags;

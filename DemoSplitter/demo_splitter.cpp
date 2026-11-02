@@ -870,8 +870,8 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 // returns demoFinished
 msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
 	static msg_t s_msg;
-	static byte s_msgData[MAX_MSGLEN];
-	MSG_Init( &s_msg, s_msgData, MAX_MSGLEN );
+	static byte s_msgData[MAX_COMBINED_MSGLEN];
+	MSG_Init( &s_msg, s_msgData, MAX_COMBINED_MSGLEN );
 	if ( !CL_ReadDemoMessage( demo->fp, &s_msg ) ) {
 		return nullptr;
 	}

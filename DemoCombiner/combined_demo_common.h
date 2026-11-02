@@ -1,6 +1,8 @@
 #pragma once
 #include "demo_common.h"
 
+#define MAX_COMBINED_MSGLEN ( MAX_MSGLEN * 32 )
+
 enum svc_combined_ops_e {
 	csvc_EOF = svc_EOF,
 	svc_demoMetadata,
