@@ -535,7 +535,7 @@ void CL_ParseDemoGamestateOverrides( msg_t* msg ) {
 		demo->lastGamestate->configStringOverrideIndex[i] = MSG_ReadShort( msg );
 		char *str = MSG_ReadString( msg );
 		int size = strlen( str );
-		Q_strncpyz( &configStringOverrides[configStringOverrideDataLen], str, MAX_GAMESTATE_CHARS - configStringOverrideDataLen );
+		Q_strncpyz( &configStringOverrides[configStringOverrideDataLen], str, sizeof( configStringOverrides ) - configStringOverrideDataLen );
 		demo->lastGamestate->configStringOverride[i] = &configStringOverrides[configStringOverrideDataLen];
 		configStringOverrideDataLen += size + 1;
 	}
@@ -995,6 +995,7 @@ combinedDemoContext_t* cctx = &mergedCtx;
 int RunSplit(char *inFile, int demoIdx, char *outFilename)
 {
 	cl_shownet->integer = 0;
+	configStringOverrideDataLen = 0;
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
 
 	memset( &entry, 0, sizeof( demoEntry_t ) );
