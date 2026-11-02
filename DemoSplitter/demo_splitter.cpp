@@ -1074,11 +1074,33 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 		if ( ctx->cl.snap.serverTime < demo->firstFrameTime || !(cctx->matchedClients & ( 1 << clientnum )) ) {
 			// need to update configstrings for the gamestate if we haven't written it yet
 			if ( framesSaved == 0 ) {
+				char bigConfigString[BIG_INFO_STRING];
 				for ( int commandNum = entry.firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
 					char* command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
 
 					Cmd_TokenizeString( command );
 					char* cmd = Cmd_Argv( 0 );
+					if ( !strcmp( cmd, "bcs0" ) ) {
+						Com_sprintf( bigConfigString, BIG_INFO_STRING, "cs %s \"%s", Cmd_Argv( 1 ), Cmd_Argv( 2 ) );
+					}
+					else if ( !strcmp( cmd, "bcs1" ) ) {
+						char* s = Cmd_Argv( 2 );
+						if ( strlen( bigConfigString ) + strlen( s ) >= BIG_INFO_STRING ) {
+							Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+						}
+						strcat( bigConfigString, s );
+					}
+					else if ( !strcmp( cmd, "bcs2" ) ) {
+						char* s = Cmd_Argv( 2 );
+						if ( strlen( bigConfigString ) + strlen( s ) + 1 >= BIG_INFO_STRING ) {
+							Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+						}
+						strcat( bigConfigString, s );
+						strcat( bigConfigString, "\"" );
+						command = bigConfigString;
+						Cmd_TokenizeString( command );
+						cmd = Cmd_Argv( 0 );
+					}
 					if ( !strcmp( cmd, "cs" ) ) {
 						CL_ConfigstringModified();
 					}
