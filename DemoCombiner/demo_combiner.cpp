@@ -95,8 +95,8 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			return msg;
 		}
 
-		if ( ctx->clc.lastExecutedServerCommand == 0 && demo->metadata->lastGamestate->serverCommandSequence > 0 ) {
-			ctx->clc.lastExecutedServerCommand = demo->metadata->lastGamestate->serverReliableAcknowledge + 1;
+		if ( demo->metadata->lastGamestate == nullptr && !ctx->cl.newSnapshots && ctx->clc.serverCommandSequence > 0 ) {
+			ctx->clc.lastExecutedServerCommand = ctx->serverReliableAcknowledge + 1;
 		}
 		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_RELIABLE_COMMANDS ) {
 			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10; // fudge factor
