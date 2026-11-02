@@ -15,3 +15,8 @@ void MSG_WriteDeltaPlayerstateWithFieldsForced( msg_t* msg, struct playerState_s
 void MSG_WriteDeltaPlayerstateForcedFields( msg_t* msg, struct playerState_s* from, struct playerState_s* to, qboolean isVehiclePS );
 
 void MSG_ReadDeltaPlayerstateWithForcedFields( msg_t* msg, playerState_t* from, playerState_t* to, playerState_t* forcedFields, qboolean isVehiclePS );
+
+char *MSG_ReadRawString( msg_t *msg );
+char *MSG_ReadRawBigString( msg_t *msg );
+#define MSG_ReadString MSG_ReadRawString
+#define MSG_ReadBigString MSG_ReadRawBigString

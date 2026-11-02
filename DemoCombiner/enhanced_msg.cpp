@@ -975,3 +975,50 @@ void MSG_ReadDeltaPlayerstateWithForcedFields( msg_t * msg, playerState_t * from
 	}
 #endif
 }
+
+char *MSG_ReadRawString( msg_t *msg ) {
+	static char	string[MAX_STRING_CHARS];
+	int		c;
+	unsigned int l;
+
+	l = 0;
+	do {
+		c = MSG_ReadByte(msg);
+		if ( c == -1 || c == 0 ) {
+			break;
+		}
+		string[l] = c;
+		l++;
+	} while (l <= sizeof(string)-1);
+
+	if (l <= sizeof(string)-1)
+	{
+		string[l] = 0;
+	}
+	else
+	{
+		string[sizeof(string)-1] = 0;
+	}
+
+	return string;
+}
+
+char *MSG_ReadRawBigString( msg_t *msg ) {
+	static char	string[BIG_INFO_STRING];
+	int		c;
+	unsigned int l;
+
+	l = 0;
+	do {
+		c = MSG_ReadByte(msg);
+		if ( c == -1 || c == 0 ) {
+			break;
+		}
+		string[l] = c;
+		l++;
+	} while (l < sizeof(string)-1);
+
+	string[l] = 0;
+
+	return string;
+}
