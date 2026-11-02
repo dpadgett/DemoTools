@@ -457,6 +457,33 @@ Command strings are just saved off until cgame asks for them
 when it transitions a snapshot
 =====================
 */
+typedef struct cmdToken_s {
+	const char* ptr;
+	int len;
+} cmdToken_t;
+
+static int SplitCommandTokens( const char* str, cmdToken_t* tokens, int maxTokens ) {
+	int count = 0;
+	const char* p = str;
+	while ( 1 ) {
+		if ( count >= maxTokens ) {
+			return -1;
+		}
+		const char* space = strchr( p, ' ' );
+		if ( !space ) {
+			tokens[count].ptr = p;
+			tokens[count].len = (int) strlen( p );
+			count++;
+			break;
+		}
+		tokens[count].ptr = p;
+		tokens[count].len = (int) ( space - p );
+		count++;
+		p = space + 1;
+	}
+	return count;
+}
+
 void CL_ParseMergedCommandString( msg_t* msg, qboolean firstServerCommandInMessage ) {
 	char* s;
 	int		seq;
@@ -470,7 +497,76 @@ void CL_ParseMergedCommandString( msg_t* msg, qboolean firstServerCommandInMessa
 		s = cctx->serverCommandBuffer[( cctx->serverCommandBufferCount - commandIdx) % 1024];
 	}
 	else {
-		s = MSG_ReadString( msg );
+		qboolean isDelta = (qboolean) MSG_ReadBits( msg, 1 );
+		if ( !isDelta ) {
+			s = MSG_ReadString( msg );
+		} else {
+			static char deltaCommandBuf[MAX_STRING_CHARS];
+			int distLong = MSG_ReadBits( msg, 1 );
+			int dist = ( distLong ? MSG_ReadBits( msg, 7 ) : MSG_ReadBits( msg, 4 ) ) + 1;
+			const char* ref = cctx->serverCommandBuffer[( cctx->serverCommandBufferCount - dist ) % 1024];
+			cmdToken_t refToks[256];
+			int refNumToks = SplitCommandTokens( ref, refToks, 256 );
+			int sameNumToks = MSG_ReadBits( msg, 1 );
+			int numToks = sameNumToks ? refNumToks : MSG_ReadBits( msg, 8 );
+			int outPos = 0;
+			int r_idx = 0;
+			for ( int i = 0; i < numToks; i++ ) {
+				if ( i > 0 && outPos < MAX_STRING_CHARS - 1 ) {
+					deltaCommandBuf[outPos++] = ' ';
+				}
+				int changed = MSG_ReadBits( msg, 1 );
+				if ( !changed ) {
+					int copyLen = refToks[r_idx].len;
+					if ( outPos + copyLen >= MAX_STRING_CHARS ) {
+						copyLen = MAX_STRING_CHARS - 1 - outPos;
+					}
+					if ( copyLen > 0 ) {
+						memcpy( deltaCommandBuf + outPos, refToks[r_idx].ptr, copyLen );
+						outPos += copyLen;
+					}
+					r_idx++;
+				} else {
+					int isJump = MSG_ReadBits( msg, 1 );
+					if ( isJump ) {
+						int jumpIdx = MSG_ReadBits( msg, 8 );
+						int copyLen = refToks[jumpIdx].len;
+						if ( outPos + copyLen >= MAX_STRING_CHARS ) {
+							copyLen = MAX_STRING_CHARS - 1 - outPos;
+						}
+						if ( copyLen > 0 ) {
+							memcpy( deltaCommandBuf + outPos, refToks[jumpIdx].ptr, copyLen );
+							outPos += copyLen;
+						}
+						r_idx = jumpIdx + 1;
+					} else {
+						int cp = MSG_ReadBits( msg, 3 );
+						if ( cp > 0 && r_idx < refNumToks ) {
+							int copyLen = cp;
+							if ( outPos + copyLen >= MAX_STRING_CHARS ) {
+								copyLen = MAX_STRING_CHARS - 1 - outPos;
+							}
+							if ( copyLen > 0 ) {
+								memcpy( deltaCommandBuf + outPos, refToks[r_idx].ptr, copyLen );
+								outPos += copyLen;
+							}
+						}
+						while ( 1 ) {
+							int c = MSG_ReadByte( msg );
+							if ( c <= 0 ) {
+								break;
+							}
+							if ( outPos < MAX_STRING_CHARS - 1 ) {
+								deltaCommandBuf[outPos++] = (char) c;
+							}
+						}
+						r_idx++;
+					}
+				}
+			}
+			deltaCommandBuf[outPos] = '\0';
+			s = deltaCommandBuf;
+		}
 		Q_strncpyz( cctx->serverCommandBuffer[cctx->serverCommandBufferCount % 1024], s, MAX_STRING_CHARS );
 		cctx->serverCommandBufferCount++;
 	}

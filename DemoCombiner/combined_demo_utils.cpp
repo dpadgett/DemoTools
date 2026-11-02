@@ -411,6 +411,174 @@ static void CL_WriteDemoMessage( msg_t* msg, int headerBytes, FILE* fp ) {
 	wroteBytes += len;
 }
 
+typedef struct cmdToken_s {
+	const char* ptr;
+	int len;
+} cmdToken_t;
+
+static int SplitCommandTokens( const char* str, cmdToken_t* tokens, int maxTokens ) {
+	int count = 0;
+	const char* p = str;
+	while ( 1 ) {
+		if ( count >= maxTokens ) {
+			return -1;
+		}
+		const char* space = strchr( p, ' ' );
+		if ( !space ) {
+			tokens[count].ptr = p;
+			tokens[count].len = (int) strlen( p );
+			count++;
+			break;
+		}
+		tokens[count].ptr = p;
+		tokens[count].len = (int) ( space - p );
+		count++;
+		p = space + 1;
+	}
+	return count;
+}
+
+static int TokenRunLen( const cmdToken_t* ctoks, int numC, int ci, const cmdToken_t* rtoks, int numR, int ri ) {
+	int k = 0;
+	while ( ci + k < numC && ri + k < numR &&
+		ctoks[ci + k].len == rtoks[ri + k].len &&
+		!memcmp( ctoks[ci + k].ptr, rtoks[ri + k].ptr, ctoks[ci + k].len ) ) {
+		k++;
+	}
+	return k;
+}
+
+static void WriteDeltaOrRawServerCommand( msg_t* msg, const char* command ) {
+	int cmdLen = (int) strlen( command );
+	int rawBits = 1 + ( cmdLen + 1 ) * 8;
+	cmdToken_t ctoks[256];
+	int numC = SplitCommandTokens( command, ctoks, 256 );
+	int bestDist = -1;
+	int bestBits = rawBits;
+
+	if ( numC > 0 && numC <= 255 && cmdLen >= 6 ) {
+		int maxDist = Q_min( 128, cctx->serverCommandBufferCount );
+		for ( int dist = 1; dist <= maxDist; dist++ ) {
+			const char* ref = cctx->serverCommandBuffer[( cctx->serverCommandBufferCount - dist ) % 1024];
+			if ( command[0] != ref[0] || command[1] != ref[1] || command[2] != ref[2] ) {
+				continue;
+			}
+			cmdToken_t rtoks[256];
+			int numR = SplitCommandTokens( ref, rtoks, 256 );
+			if ( numR <= 0 || numR > 255 ) {
+				continue;
+			}
+			int bits = 1 + ( dist <= 16 ? 5 : 8 ) + ( numC == numR ? 1 : 9 );
+			int r_idx = 0;
+			for ( int i = 0; i < numC; i++ ) {
+				if ( r_idx < numR && ctoks[i].len == rtoks[r_idx].len && !memcmp( ctoks[i].ptr, rtoks[r_idx].ptr, ctoks[i].len ) ) {
+					bits += 1;
+					r_idx++;
+				} else {
+					int stayRun = TokenRunLen( ctoks, numC, i + 1, rtoks, numR, r_idx + 1 );
+					int bestJ = -1;
+					int bestJRun = 0;
+					for ( int j = 0; j < numR; j++ ) {
+						if ( ctoks[i].len == rtoks[j].len && !memcmp( ctoks[i].ptr, rtoks[j].ptr, ctoks[i].len ) ) {
+							int rl = TokenRunLen( ctoks, numC, i + 1, rtoks, numR, j + 1 );
+							if ( rl > bestJRun || bestJ == -1 ) {
+								bestJRun = rl;
+								bestJ = j;
+							}
+						}
+					}
+					if ( bestJ != -1 && bestJRun >= stayRun && ( bestJRun >= 1 || ctoks[i].len >= 2 ) ) {
+						bits += 10;
+						r_idx = bestJ + 1;
+					} else {
+						int cp = 0;
+						if ( r_idx < numR ) {
+							while ( cp < ctoks[i].len && cp < rtoks[r_idx].len && cp < 7 && ctoks[i].ptr[cp] == rtoks[r_idx].ptr[cp] ) {
+								cp++;
+							}
+						}
+						bits += 5 + ( ctoks[i].len - cp + 1 ) * 8;
+						r_idx++;
+					}
+				}
+				if ( bits >= bestBits ) {
+					break;
+				}
+			}
+			if ( bits < bestBits ) {
+				bestBits = bits;
+				bestDist = dist;
+			}
+		}
+	}
+
+	if ( bestDist == -1 ) {
+		MSG_WriteBits( msg, 0, 1 );
+		MSG_WriteString( msg, command );
+		return;
+	}
+
+	const char* ref = cctx->serverCommandBuffer[( cctx->serverCommandBufferCount - bestDist ) % 1024];
+	cmdToken_t rtoks[256];
+	int numR = SplitCommandTokens( ref, rtoks, 256 );
+
+	MSG_WriteBits( msg, 1, 1 );
+	if ( bestDist <= 16 ) {
+		MSG_WriteBits( msg, 0, 1 );
+		MSG_WriteBits( msg, bestDist - 1, 4 );
+	} else {
+		MSG_WriteBits( msg, 1, 1 );
+		MSG_WriteBits( msg, bestDist - 1, 7 );
+	}
+	if ( numC == numR ) {
+		MSG_WriteBits( msg, 1, 1 );
+	} else {
+		MSG_WriteBits( msg, 0, 1 );
+		MSG_WriteBits( msg, numC, 8 );
+	}
+	int r_idx = 0;
+	for ( int i = 0; i < numC; i++ ) {
+		if ( r_idx < numR && ctoks[i].len == rtoks[r_idx].len && !memcmp( ctoks[i].ptr, rtoks[r_idx].ptr, ctoks[i].len ) ) {
+			MSG_WriteBits( msg, 0, 1 );
+			r_idx++;
+		} else {
+			int stayRun = TokenRunLen( ctoks, numC, i + 1, rtoks, numR, r_idx + 1 );
+			int bestJ = -1;
+			int bestJRun = 0;
+			for ( int j = 0; j < numR; j++ ) {
+				if ( ctoks[i].len == rtoks[j].len && !memcmp( ctoks[i].ptr, rtoks[j].ptr, ctoks[i].len ) ) {
+					int rl = TokenRunLen( ctoks, numC, i + 1, rtoks, numR, j + 1 );
+					if ( rl > bestJRun || bestJ == -1 ) {
+						bestJRun = rl;
+						bestJ = j;
+					}
+				}
+			}
+			if ( bestJ != -1 && bestJRun >= stayRun && ( bestJRun >= 1 || ctoks[i].len >= 2 ) ) {
+				MSG_WriteBits( msg, 1, 1 );
+				MSG_WriteBits( msg, 1, 1 );
+				MSG_WriteBits( msg, bestJ, 8 );
+				r_idx = bestJ + 1;
+			} else {
+				int cp = 0;
+				if ( r_idx < numR ) {
+					while ( cp < ctoks[i].len && cp < rtoks[r_idx].len && cp < 7 && ctoks[i].ptr[cp] == rtoks[r_idx].ptr[cp] ) {
+						cp++;
+					}
+				}
+				MSG_WriteBits( msg, 1, 1 );
+				MSG_WriteBits( msg, 0, 1 );
+				MSG_WriteBits( msg, cp, 3 );
+				for ( int k = cp; k < ctoks[i].len; k++ ) {
+					MSG_WriteByte( msg, (byte) ctoks[i].ptr[k] );
+				}
+				MSG_WriteByte( msg, 0 );
+				r_idx++;
+			}
+		}
+	}
+}
+
 void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceNonDelta, int serverCommandOffset ) {
 	msg_t				msgImpl, * msg = &msgImpl;
 	byte				msgData[MAX_MSGLEN];
@@ -508,16 +676,17 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 				MSG_WriteBits( msg, 1, 1 );
 				MSG_WriteShort( msg, cctx->serverCommandBufferCount - commandIdx );
 				buffered = qtrue;
+				break;
 			}
 		}
 		if ( buffered ) {
 			continue;
 		}
+		MSG_WriteBits( msg, 0, 1 );
+		WriteDeltaOrRawServerCommand( msg, command );
 		// new commmand, add to the buffer
 		Q_strncpyz( cctx->serverCommandBuffer[cctx->serverCommandBufferCount % 1024], command, MAX_STRING_CHARS );
 		cctx->serverCommandBufferCount++;
-		MSG_WriteBits( msg, 0, 1 );
-		MSG_WriteString( msg, command );
 	}
 
 	// this is the snapshot we are creating
