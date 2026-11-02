@@ -749,7 +749,7 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 
 				// add all the entities
 				for ( int entIdx = dsnap->parseEntitiesNum; entIdx < dsnap->parseEntitiesNum + dsnap->numEntities; entIdx++ ) {
-					entityState_t *ent = &dctx->cl.parseEntities[entIdx & (MAX_PARSE_ENTITIES - 1)];
+					entityState_t *ent = dctx->parseEntityPtr[entIdx & (MAX_PARSE_ENTITIES - 1)];
 					SV_AddEntToSnapshot( ent, &entityNumbers );
 					owners[ent->number] |= 1 << idx;
 
@@ -840,7 +840,7 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 
 								entityState_t *tent = NULL;
 								for ( index = dsnap->parseEntitiesNum; index < dsnap->parseEntitiesNum + dsnap->numEntities; index++ ) {
-									tent = &dctx->cl.parseEntities[index & (MAX_PARSE_ENTITIES - 1)];
+									tent = dctx->parseEntityPtr[index & (MAX_PARSE_ENTITIES - 1)];
 									if ( tent->number == es.eventParm ) {
 										break;
 									}
@@ -1042,7 +1042,7 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 
 				// add all the entities if we need to
 				for ( int entIdx = dsnap->parseEntitiesNum; entIdx < dsnap->parseEntitiesNum + dsnap->numEntities; entIdx++ ) {
-					entityState_t *ent = &dctx->cl.parseEntities[entIdx % MAX_PARSE_ENTITIES];
+					entityState_t *ent = dctx->parseEntityPtr[entIdx % MAX_PARSE_ENTITIES];
 					// skip if this ent is already in current snap
 					if ( owners[ent->number] != 0 ) continue;
 					SV_AddEntToSnapshot( ent, &entityNumbers );
@@ -1186,7 +1186,10 @@ int RunMerge(int clientNum, char **demos, int numDemos, char *outFilename)
 					// don't add ourself
 					continue;
 				}
-				entityState_t *state = &ctx->cl.parseEntities[ctx->cl.parseEntitiesNum % MAX_PARSE_ENTITIES];
+				int dstSlot = ctx->cl.parseEntitiesNum & (MAX_PARSE_ENTITIES - 1);
+				entityState_t *state = &ctx->cl.parseEntities[dstSlot];
+				ctx->parseEntityPtr[dstSlot] = state;
+				ctx->parseEntityVersion[dstSlot] = 0;
 				ctx->cl.parseEntitiesNum++;
 				*state = *ent;
 				// this should never hit, map should always be restarted first in SV_Frame

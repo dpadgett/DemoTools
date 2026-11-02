@@ -282,7 +282,7 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 			newnum = 9999;
 		}
 		else {
-			newent = &ctx->cl.parseEntities[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			newent = ctx->parseEntityPtr[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			newfloatForced = &cctx->parseEntitiesFloatForced[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			newnum = newent->number;
 		}
@@ -291,7 +291,7 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 			oldnum = 9999;
 		}
 		else {
-			oldent = &ctx->cl.parseEntities[( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			oldent = ctx->parseEntityPtr[( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			oldfloatForced = &cctx->parseEntitiesFloatForced[( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			oldnum = oldent->number;
 		}
@@ -300,12 +300,21 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 		int owner_delta = owner_delta = owners[entnum] ^ prev_owners[entnum];
 
 		if ( newnum == oldnum ) {
+			int newSlot = ( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 );
+			int oldSlot = ( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 );
+			uint32_t newVer = ctx->parseEntityVersion[newSlot];
+			if ( owner_delta == 0 && !oldfloatForced->number && !newfloatForced->number && newVer != 0 && newVer == ctx->parseEntityVersion[oldSlot] ) {
+				oldindex++;
+				newindex++;
+				continue;
+			}
 			// need to check if MSG_WriteDeltaEntity will write anything or not.
 			msg_t tmp = *msg;
 			// delta update from old position
 			// because the force parm is qfalse, this will not result
 			// in any bytes being emited if the entity has not changed at all
-			bool floatForcedChanged = memcmp( oldfloatForced, newfloatForced, sizeof( *newfloatForced ) );
+			bool floatForcedChanged = ( oldfloatForced->number || newfloatForced->number ) &&
+				memcmp( (const byte*)oldfloatForced + 4, (const byte*)newfloatForced + 4, sizeof( *newfloatForced ) - 4 );
 			MSG_WriteDeltaEntity( msg, oldent, newent, owner_delta != 0 || floatForcedChanged ? qtrue : qfalse );
 			if ( tmp.cursize == msg->cursize && tmp.bit == msg->bit ) {
 				// nothing was written, don't need to write ownership info since it didn't change
@@ -661,8 +670,17 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	}
 
 	// copy over any commands
+	static uint32_t serverCommandBufferHashes[1024];
+	auto hashCmd = []( const char* s ) -> uint32_t {
+		uint32_t h = 2166136261u;
+		while ( *s ) {
+			h = ( h ^ (uint8_t)( *s++ ) ) * 16777619u;
+		}
+		return h;
+	};
 	for ( int serverCommand = firstServerCommand; serverCommand <= ctx->clc.serverCommandSequence; serverCommand++ ) {
 		char* command = ctx->clc.serverCommands[serverCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
+		uint32_t cmdHash = hashCmd( command );
 		MSG_WriteByte( msg, svc_serverCommand );
 		MSG_WriteLong( msg, serverCommand + serverCommandOffset );
 		// write bitmask of who should get this command
@@ -670,7 +688,10 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 		MSG_WriteLong( msg, bitmask );
 		qboolean buffered = qfalse;
 		for ( int commandIdx = Q_max( 0, cctx->serverCommandBufferCount - 1024 ); commandIdx < cctx->serverCommandBufferCount; commandIdx++ ) {
-			char* bufferedCommand = cctx->serverCommandBuffer[commandIdx % 1024];
+			if ( serverCommandBufferHashes[commandIdx & 1023] != cmdHash ) {
+				continue;
+			}
+			char* bufferedCommand = cctx->serverCommandBuffer[commandIdx & 1023];
 			if ( !Q_strncmp( command, bufferedCommand, MAX_STRING_CHARS ) ) {
 				// this command already exists in the buffer
 				MSG_WriteBits( msg, 1, 1 );
@@ -685,7 +706,8 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 		MSG_WriteBits( msg, 0, 1 );
 		WriteDeltaOrRawServerCommand( msg, command );
 		// new commmand, add to the buffer
-		Q_strncpyz( cctx->serverCommandBuffer[cctx->serverCommandBufferCount % 1024], command, MAX_STRING_CHARS );
+		Q_strncpyz( cctx->serverCommandBuffer[cctx->serverCommandBufferCount & 1023], command, MAX_STRING_CHARS );
+		serverCommandBufferHashes[cctx->serverCommandBufferCount & 1023] = cmdHash;
 		cctx->serverCommandBufferCount++;
 	}
 

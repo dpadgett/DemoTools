@@ -949,7 +949,7 @@ int main( int argc, char **argv ) {
 		entityState_t me;
 		memset( clientEnts, 0, sizeof( clientEnts ) );
 		for ( int entityIdx = 0; entityIdx < ctx->cl.snap.numEntities; entityIdx++ ) {
-			entityState_t *es = &ctx->cl.parseEntities[( ctx->cl.snap.parseEntitiesNum + entityIdx ) & (MAX_PARSE_ENTITIES-1)];
+			entityState_t *es = ctx->parseEntityPtr[( ctx->cl.snap.parseEntitiesNum + entityIdx ) & (MAX_PARSE_ENTITIES-1)];
 			if ( es->number >= 0 && es->number < MAX_CLIENTS ) {
 				clientEnts[es->number] = es;
 			}
@@ -961,7 +961,7 @@ int main( int argc, char **argv ) {
 			corpseTrack[corpseIdx].numSnapsMissing++;
 		}
 		for ( int entityIdx = 0; entityIdx < ctx->cl.snap.numEntities; entityIdx++ ) {
-			entityState_t *es = &ctx->cl.parseEntities[( ctx->cl.snap.parseEntitiesNum + entityIdx ) & (MAX_PARSE_ENTITIES-1)];
+			entityState_t *es = ctx->parseEntityPtr[( ctx->cl.snap.parseEntitiesNum + entityIdx ) & (MAX_PARSE_ENTITIES-1)];
 			if ( es->eType > ET_EVENTS ) {
 				es->event = es->eType - ET_EVENTS;
 				if ( eventReceived[es->number] >= ctx->cl.snap.serverTime - EVENT_VALID_MSEC ) {
@@ -1095,7 +1095,7 @@ int main( int argc, char **argv ) {
 							// try and find the rocket
 							entityState_t *missile = NULL;
 							for ( int rocketIdx = 0; rocketIdx < ctx->cl.snap.numEntities; rocketIdx++ ) {
-								entityState_t *es = &ctx->cl.parseEntities[( ctx->cl.snap.parseEntitiesNum + rocketIdx ) & (MAX_PARSE_ENTITIES-1)];
+								entityState_t *es = ctx->parseEntityPtr[( ctx->cl.snap.parseEntitiesNum + rocketIdx ) & (MAX_PARSE_ENTITIES-1)];
 								if ( es->eType == ET_GENERAL &&
 										( es->event & ~EV_EVENT_BITS ) == EV_MISSILE_HIT &&
 										es->otherEntityNum == target &&
@@ -1223,7 +1223,7 @@ int main( int argc, char **argv ) {
 		}
 		memset( lastMissiles, 0, sizeof( lastMissiles ) );
 		for ( int rocketIdx = 0; rocketIdx < ctx->cl.snap.numEntities; rocketIdx++ ) {
-			entityState_t *es = &ctx->cl.parseEntities[( ctx->cl.snap.parseEntitiesNum + rocketIdx ) & (MAX_PARSE_ENTITIES-1)];
+			entityState_t *es = ctx->parseEntityPtr[( ctx->cl.snap.parseEntitiesNum + rocketIdx ) & (MAX_PARSE_ENTITIES-1)];
 			if ( parseMakerEnts ) {
 				if ( ( es->eType == ET_MOVER && es->modelindex && es->modelindex2 ) || es->eType == ET_FX ) {
 					// see if it already exists in our list

@@ -571,11 +571,29 @@ qboolean CL_ReadDemoMessageWithBuf( fileHandle_t demofile, msg_t *msg, int* bufL
 }
 
 qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t* msg ) {
-	int bufLen = 0;
-	byte* readBuf;
-	qboolean ret = CL_ReadDemoMessageWithBuf( demofile, msg, &bufLen, &readBuf );
-	free( readBuf );
-	return ret;
+	if ( !demofile ) {
+		return qfalse;
+	}
+	int hdr[2];
+	if ( FS_Read( hdr, 8, demofile ) != 8 ) {
+		return qfalse;
+	}
+	ctx->clc.serverMessageSequence = LittleLong( hdr[0] );
+	msg->cursize = LittleLong( hdr[1] );
+	if ( msg->cursize == -1 ) {
+		return qfalse;
+	}
+	if ( msg->cursize > msg->maxsize ) {
+		Com_Error( ERR_DROP, "CL_ReadDemoMessage: demoMsglen > MAX_MSGLEN" );
+	}
+	int r = FS_Read( msg->data, msg->cursize, demofile );
+	if ( r != msg->cursize ) {
+		Com_Printf( "Demo file was truncated.\n" );
+		return qfalse;
+	}
+	ctx->clc.lastPacketTime = ctx->cls.realtime;
+	msg->readcount = 0;
+	return qtrue;
 }
 
 float vectoyaw( const vec3_t vec ) {

@@ -9,11 +9,7 @@
 #include <fcntl.h>
 #endif
 
-static void SHOWNET( msg_t* msg, const char* s ) {
-	if ( cl_shownet->integer >= 1 ) {
-		Com_Printf( "%3i:%s\n", msg->cursize - 1, s );
-	}
-}
+#define SHOWNET( msg, s ) do { if ( cl_shownet->integer >= 1 ) { Com_Printf( "%3i:%s\n", (msg)->cursize - 1, (s) ); } } while ( 0 )
 
 void writeDemoHeaderToMsg(msg_t *msg, int serverCommandSequence) {
 	int			i;
@@ -208,7 +204,7 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 		if ( newindex >= to->numEntities ) {
 			newnum = 9999;
 		} else {
-			newent = &ctx->cl.parseEntities[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			newent = ctx->parseEntityPtr[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			floatForced = &ctx->parseEntitiesFloatForced[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
 			newnum = newent->number;
 		}
@@ -216,16 +212,18 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 		if ( oldindex >= from_num_entities ) {
 			oldnum = 9999;
 		} else {
-			oldent = &ctx->cl.parseEntities[(from->parseEntitiesNum+oldindex) & (MAX_PARSE_ENTITIES-1)];
+			oldent = ctx->parseEntityPtr[(from->parseEntitiesNum+oldindex) & (MAX_PARSE_ENTITIES-1)];
 			oldnum = oldent->number;
 		}
 
 		if ( newnum == oldnum ) {
-			// delta update from old position
-			// because the force parm is qfalse, this will not result
-			// in any bytes being emited if the entity has not changed at all
-			if ( newnum == 264 ) {
-				//Com_Printf( "264\n" );
+			int newSlot = ( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 );
+			int oldSlot = ( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 );
+			uint32_t newVer = ctx->parseEntityVersion[newSlot];
+			if ( !floatForced->number && newVer != 0 && newVer == ctx->parseEntityVersion[oldSlot] ) {
+				oldindex++;
+				newindex++;
+				continue;
 			}
 			MSG_WriteDeltaEntityWithFloatsForced (msg, oldent, newent, floatForced, qfalse );
 			oldindex++;
@@ -347,7 +345,7 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 		SHOWNET( msg, "svc_snapshot" );
 		Com_Printf( "Writing snapshot, delta %d, numEntities %d\n", lastframe, frame->numEntities );
 		for ( int i = 0; i < frame->numEntities; i++ ) {
-			Com_Printf( "%d ", ctx->cl.parseEntities[( frame->parseEntitiesNum + i ) % MAX_PARSE_ENTITIES].number );
+			Com_Printf( "%d ", ctx->parseEntityPtr[( frame->parseEntitiesNum + i ) % MAX_PARSE_ENTITIES]->number );
 		}
 		Com_Printf( "\n" );
 	}

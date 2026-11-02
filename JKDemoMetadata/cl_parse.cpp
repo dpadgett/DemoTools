@@ -21,11 +21,7 @@ const char *svc_strings[256] = {
 	"svc_mapchange",
 };
 
-void SHOWNET( msg_t *msg, const char *s) {
-	if ( cl_shownet->integer >= 2 ) {
-		Com_Printf ("%3i:%s\n", msg->readcount-1, s);
-	}
-}
+#define SHOWNET( msg, s ) do { if ( cl_shownet->integer >= 2 ) { Com_Printf( "%3i:%s\n", (msg)->readcount - 1, (s) ); } } while ( 0 )
 
 /*
 =====================
@@ -132,7 +128,6 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 			Com_Memcpy( ctx->cl.gameState.stringData + ctx->cl.gameState.dataCount, s, len + 1 );
 			ctx->cl.gameState.dataCount += len + 1;
 		} else if ( cmd == svc_baseline ) {
-			int start = msg->readcount;
 			newnum = MSG_ReadBits( msg, GENTITYNUM_BITS );
 			if ( newnum < 0 || newnum >= MAX_GENTITIES ) {
 				Com_Error( ERR_DROP, "Baseline number out of range: %i", newnum );
@@ -163,29 +158,48 @@ to the current frame
 void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame, int newnum, entityState_t *old,
 					 qboolean unchanged) {
 	entityState_t	*state, *floatForced;
+	int dstSlot = ctx->cl.parseEntitiesNum & (MAX_PARSE_ENTITIES-1);
 
-	// save the parsed entity state into the big circular buffer so
-	// it can be used as the source for a later delta
-	state = &ctx->cl.parseEntities[ctx->cl.parseEntitiesNum & (MAX_PARSE_ENTITIES-1)];
-	floatForced = &ctx->parseEntitiesFloatForced[ctx->cl.parseEntitiesNum & ( MAX_PARSE_ENTITIES - 1 )];
-
-	if ( frame->serverTime == 413135 && newnum == 3 && frame->ps.commandTime == 413076 ) {
-		Com_Printf( "WTF8\n" );
-	}
+	floatForced = &ctx->parseEntitiesFloatForced[dstSlot];
 
 	if ( unchanged )
 	{
-		*state = *old;
-		Com_Memset( floatForced, 0, sizeof( *floatForced ) );
+		size_t oldPoolSlot = (size_t)( old - ctx->entityPool );
+		uint32_t poolIdx = ctx->entityPoolSlotIdx[oldPoolSlot];
+		uint32_t ver = ctx->entityPoolSlotVer[oldPoolSlot];
+		if ( ctx->entityPoolIdx - poolIdx >= ENTITY_POOL_SIZE - 4096 ) {
+			poolIdx = ++ctx->entityPoolIdx;
+			size_t newPoolSlot = poolIdx & ( ENTITY_POOL_SIZE - 1 );
+			state = &ctx->entityPool[newPoolSlot];
+			*state = *old;
+			ctx->entityPoolSlotIdx[newPoolSlot] = poolIdx;
+			ctx->entityPoolSlotVer[newPoolSlot] = ver;
+			old = state;
+		}
+		ctx->parseEntityPtr[dstSlot] = old;
+		ctx->parseEntityVersion[dstSlot] = ver;
+		if ( floatForced->number ) {
+			Com_Memset( floatForced, 0, sizeof( *floatForced ) );
+		}
 	}
 	else
 	{
+		uint32_t poolIdx = ++ctx->entityPoolIdx;
+		size_t poolSlot = poolIdx & ( ENTITY_POOL_SIZE - 1 );
+		state = &ctx->entityPool[poolSlot];
 		MSG_ReadDeltaEntityWithFloats( msg, old, state, floatForced, newnum, qfalse );
+		if ( state->number == (MAX_GENTITIES-1) ) {
+			ctx->entityPoolIdx--;
+			ctx->parseEntityVersion[dstSlot] = 0;
+			return;		// entity was delta removed
+		}
+		uint32_t ver = ++g_nextEntityVersion;
+		ctx->entityPoolSlotIdx[poolSlot] = poolIdx;
+		ctx->entityPoolSlotVer[poolSlot] = ver;
+		ctx->parseEntityPtr[dstSlot] = state;
+		ctx->parseEntityVersion[dstSlot] = ver;
 	}
 
-	if ( state->number == (MAX_GENTITIES-1) ) {
-		return;		// entity was delta removed
-	}
 	ctx->cl.parseEntitiesNum++;
 	frame->numEntities++;
 }
@@ -213,7 +227,7 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 		if ( oldindex >= oldframe->numEntities ) {
 			oldnum = 99999;
 		} else {
-			oldstate = &ctx->cl.parseEntities[
+			oldstate = ctx->parseEntityPtr[
 				(oldframe->parseEntitiesNum + oldindex) & (MAX_PARSE_ENTITIES-1)];
 			oldnum = oldstate->number;
 		}
@@ -246,7 +260,7 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 			if ( oldindex >= oldframe->numEntities ) {
 				oldnum = 99999;
 			} else {
-				oldstate = &ctx->cl.parseEntities[
+				oldstate = ctx->parseEntityPtr[
 					(oldframe->parseEntitiesNum + oldindex) & (MAX_PARSE_ENTITIES-1)];
 				oldnum = oldstate->number;
 			}
@@ -266,7 +280,7 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 			if ( oldindex >= oldframe->numEntities ) {
 				oldnum = 99999;
 			} else {
-				oldstate = &ctx->cl.parseEntities[
+				oldstate = ctx->parseEntityPtr[
 					(oldframe->parseEntitiesNum + oldindex) & (MAX_PARSE_ENTITIES-1)];
 				oldnum = oldstate->number;
 			}
@@ -303,7 +317,7 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 		if ( oldindex >= oldframe->numEntities ) {
 			oldnum = 99999;
 		} else {
-			oldstate = &ctx->cl.parseEntities[
+			oldstate = ctx->parseEntityPtr[
 				(oldframe->parseEntitiesNum + oldindex) & (MAX_PARSE_ENTITIES-1)];
 			oldnum = oldstate->number;
 		}
@@ -333,7 +347,9 @@ void CL_ParseSnapshot( msg_t *msg ) {
 
 	// read in the new snapshot to a temporary buffer
 	// we will only copy to cl.snap if it is valid
-	Com_Memset (&newSnap, 0, sizeof(newSnap));
+	Com_Memset (&newSnap, 0, offsetof(clSnapshot_t, ps));
+	newSnap.numEntities = 0;
+	newSnap.parseEntitiesNum = 0;
 
 	// we will have read any new server commands in this
 	// message before we got to svc_snapshot
@@ -448,18 +464,18 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	}
 
 	// copy to the current good spot
-	ctx->cl.snap = newSnap;
-	ctx->cl.snap.ping = 999;
+	newSnap.ping = 999;
 	// calculate ping time
 	for ( i = 0 ; i < PACKET_BACKUP ; i++ ) {
 		packetNum = ( ctx->clc.netchan.outgoingSequence - 1 - i ) & PACKET_MASK;
-		if ( ctx->cl.snap.ps.commandTime >= ctx->cl.outPackets[ packetNum ].p_serverTime ) {
-			ctx->cl.snap.ping = ctx->cls.realtime - ctx->cl.outPackets[ packetNum ].p_realtime;
+		if ( newSnap.ps.commandTime >= ctx->cl.outPackets[ packetNum ].p_serverTime ) {
+			newSnap.ping = ctx->cls.realtime - ctx->cl.outPackets[ packetNum ].p_realtime;
 			break;
 		}
 	}
+	CopyClSnapshot( &ctx->cl.snap, &newSnap );
 	// save the frame off in the backup array for later delta comparisons
-	ctx->cl.snapshots[ctx->cl.snap.messageNum & PACKET_MASK] = ctx->cl.snap;
+	CopyClSnapshot( &ctx->cl.snapshots[ctx->cl.snap.messageNum & PACKET_MASK], &ctx->cl.snap );
 
 	if (cl_shownet->integer == 3) {
 		Com_Printf( "   snapshot:%i  delta:%i  ping:%i\n", ctx->cl.snap.messageNum,
@@ -567,7 +583,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			if ( cl_shownet->integer >= 1 && ctx->clc.clientNum == 2 ) {
 				Com_Printf( "Parsed snapshot delta %d, numEntities %d\n", ctx->cl.snap.deltaNum == -1 ? 0 : ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum, ctx->cl.snap.numEntities );
 				for ( int i = 0; i < ctx->cl.snap.numEntities; i++ ) {
-					Com_Printf( "%d ", ctx->cl.parseEntities[( ctx->cl.snap.parseEntitiesNum + i ) % MAX_PARSE_ENTITIES].number );
+					Com_Printf( "%d ", ctx->parseEntityPtr[( ctx->cl.snap.parseEntitiesNum + i ) % MAX_PARSE_ENTITIES]->number );
 				}
 				Com_Printf( "\n" );
 			}
