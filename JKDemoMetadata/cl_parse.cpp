@@ -167,7 +167,7 @@ void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame, int newnum, entityState_t 
 		size_t oldPoolSlot = (size_t)( old - ctx->entityPool );
 		uint32_t poolIdx = ctx->entityPoolSlotIdx[oldPoolSlot];
 		uint32_t ver = ctx->entityPoolSlotVer[oldPoolSlot];
-		if ( ctx->entityPoolIdx - poolIdx >= ENTITY_POOL_SIZE - 4096 ) {
+		if ( ctx->entityPoolIdx - poolIdx >= ENTITY_POOL_SIZE - 32768 ) {
 			poolIdx = ++ctx->entityPoolIdx;
 			size_t newPoolSlot = poolIdx & ( ENTITY_POOL_SIZE - 1 );
 			state = &ctx->entityPool[newPoolSlot];
