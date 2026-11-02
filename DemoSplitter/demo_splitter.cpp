@@ -989,10 +989,19 @@ typedef struct netField_s {
 } netField_t;
 extern netField_t entityStateFields[132];
 
+typedef struct {
+	demoContext_t *ctx;
+	FILE *outFile;
+	int framesSaved;
+	int serverCommandOffset;
+	int numHandledGamestates;
+	qboolean done;
+} splitDemoState_t;
+
 static combinedDemoContext_t mergedCtx;
 combinedDemoContext_t* cctx = &mergedCtx;
 // bitmask of which clients had this ent in cur/prev snaps.
-int RunSplit(char *inFile, int demoIdx, char *outFilename)
+int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 {
 	cl_shownet->integer = 0;
 	configStringOverrideDataLen = 0;
@@ -1007,7 +1016,7 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 			return -1;
 		}
 		entry.cctx = &mergedCtx; //(demoContext_t *) calloc( 1, sizeof( demoContext_t ) );
-		entry.ctx = (demoContext_t *) calloc( 1, sizeof( demoContext_t ) );
+		entry.ctx = NULL;
 		entry.currentMap = 0;
 		entry.eos = qfalse;
 		entry.serverCommandSyncIdx = 0;
@@ -1033,50 +1042,79 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 	if ( cctx->numDemos <= demoIdx ) {
 		Com_Error( ERR_FATAL, "Demo %d exceeds numDemos %d!\n", demoIdx, cctx->numDemos );
 	}
-	demoMetadata_t* demo = &cctx->demos[demoIdx];
-	Com_Printf( "Found demo: %s\n", demo->filename );
-	int clientnum = demo->clientnum;
-	entry.ctx->clc.clientNum = clientnum;
 
-	if ( !outFilename || !*outFilename ) {
-		outFilename = demo->filename;
-	}
+	int startDemoIdx = ( demoIdx == -2 ) ? 0 : demoIdx;
+	int endDemoIdx = ( demoIdx == -2 ) ? cctx->numDemos : demoIdx + 1;
+	splitDemoState_t *states = (splitDemoState_t *) calloc( cctx->numDemos, sizeof( splitDemoState_t ) );
 
-	FILE *outFile;
-	if ( !Q_strncmp( outFilename, "-", 2 ) ) {
-		outFile = stdout;
+	for ( int d = startDemoIdx; d < endDemoIdx; d++ ) {
+		demoMetadata_t* demo = &cctx->demos[d];
+		Com_Printf( "Found demo: %s\n", demo->filename );
+		int clientnum = demo->clientnum;
+		states[d].ctx = (demoContext_t *) calloc( 1, sizeof( demoContext_t ) );
+		states[d].ctx->clc.clientNum = clientnum;
+		states[d].ctx->cl.gameState = mergedCtx.ctx.cl.gameState;
+		memcpy( states[d].ctx->cl.entityBaselines, mergedCtx.ctx.cl.entityBaselines, sizeof( mergedCtx.ctx.cl.entityBaselines ) );
+		states[d].ctx->clc.checksumFeed = mergedCtx.ctx.clc.checksumFeed;
+
+		const char *curOutFilename = outFilename;
+		char splitPathBuf[MAX_OSPATH];
+		if ( demoIdx == -2 ) {
+			const char *dir = ( outFilename && *outFilename ) ? outFilename : ".";
+			Com_sprintf( splitPathBuf, sizeof( splitPathBuf ), "%s/split_%d.dm_26", dir, d );
+			curOutFilename = splitPathBuf;
+		} else if ( !curOutFilename || !*curOutFilename ) {
+			curOutFilename = demo->filename;
+		}
+
+		FILE *outFile;
+		if ( !Q_strncmp( curOutFilename, "-", 2 ) ) {
+			outFile = stdout;
 #ifdef WIN32
-		setmode(fileno(stdout), O_BINARY);
+			setmode(fileno(stdout), O_BINARY);
 #else
-		//freopen( NULL, "wb", stdout );
+			//freopen( NULL, "wb", stdout );
     // apparently this isn't necessary on linux :?
 #endif
-	} else {
-		outFile = fopen( outFilename, "wb" );
-	}
-	if ( !outFile ) {
-		printf( "Couldn't open output file\n" );
-		return -1;
+		} else {
+			outFile = fopen( curOutFilename, "wb" );
+		}
+		if ( !outFile ) {
+			printf( "Couldn't open output file\n" );
+			return -1;
+		}
+		states[d].outFile = outFile;
+
+		if ( demo->lastGamestate ) {
+			states[d].ctx->clc.lastExecutedServerCommand = states[d].ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
+			states[d].ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
+			states[d].ctx->clc.serverCommandSequence--;
+			states[d].ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
+		}
 	}
 
-	if ( demo->lastGamestate ) {
-		entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
-		entry.ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
-		entry.ctx->clc.serverCommandSequence--;
-		entry.ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
-	}
 	ctx = &mergedCtx.ctx;
-	int serverCommandOffset = 0;
-	int framesSaved = 0;
 	int firstMissingFrame = -1;
 	json_t *missingFrames = json_array();
 	while ( true ) {
-		if ( ctx->cl.snap.serverTime < demo->firstFrameTime || !(cctx->matchedClients & ( 1 << clientnum )) ) {
+		for ( int d = startDemoIdx; d < endDemoIdx; d++ ) {
+		if ( states[d].done ) {
+			continue;
+		}
+		demoMetadata_t* demo = &cctx->demos[d];
+		int clientnum = demo->clientnum;
+		entry.ctx = states[d].ctx;
+		FILE *outFile = states[d].outFile;
+		int &framesSaved = states[d].framesSaved;
+		int &serverCommandOffset = states[d].serverCommandOffset;
+
+		if ( mergedCtx.ctx.cl.snap.serverTime < demo->firstFrameTime || !(cctx->matchedClients & ( 1 << clientnum )) ) {
 			// need to update configstrings for the gamestate if we haven't written it yet
 			if ( framesSaved == 0 ) {
 				char bigConfigString[BIG_INFO_STRING];
-				for ( int commandNum = entry.firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
-					char* command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+				ctx = entry.ctx;
+				for ( int commandNum = entry.firstServerCommand; commandNum <= mergedCtx.ctx.clc.serverCommandSequence; commandNum++ ) {
+					char* command = mergedCtx.ctx.clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
 
 					Cmd_TokenizeString( command );
 					char* cmd = Cmd_Argv( 0 );
@@ -1105,8 +1143,9 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 						CL_ConfigstringModified();
 					}
 				}
+				ctx = &mergedCtx.ctx;
 			}
-			goto advanceLoop;
+			continue;
 		}
 		//// find frame time
 		//int frameTime = (int) (((unsigned int) -1) >> 1);//MAXINT;
@@ -1187,6 +1226,7 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 
 		//ctx = &mergedCtx.ctx;
 		//entry.ctx->clc.serverMessageSequence++;
+		{
 		entry.ctx->clc.serverMessageSequence = cctx->serverMessageSequence[clientnum];
 		////ctx->clc.reliableAcknowledge; // this doesn't need to be bumped
 		int raIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 1 : 0;
@@ -1208,12 +1248,13 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 
 		char bigConfigString[BIG_INFO_STRING];
 
-		for ( int idx = cctx->numHandledGamestates; idx < cctx->numGamestates; idx++, cctx->numHandledGamestates++ ) {
-			if ( cctx->gamestates[idx].demoIdx != demoIdx ) {
+		for ( int idx = states[d].numHandledGamestates; idx < cctx->numGamestates; idx++, states[d].numHandledGamestates++ ) {
+			if ( cctx->gamestates[idx].demoIdx != d ) {
 				continue;
 			}
 			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[idx];
 
+			ctx = entry.ctx;
 			// update any configstrings up to the gamestate's command sequence number
 			for ( int commandNum = firstServerCommand; commandNum <= gamestateMetadata->serverCommandSequence; commandNum++, firstServerCommand++ ) {
 				char* command = entry.ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
@@ -1256,10 +1297,8 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 				}
 			}
 			// write header
-			memcpy( entry.ctx->cl.gameState.stringData, ctx->cl.gameState.stringData, sizeof( ctx->cl.gameState.stringData ) );
-			memcpy( entry.ctx->cl.gameState.stringOffsets, ctx->cl.gameState.stringOffsets, sizeof( ctx->cl.gameState.stringOffsets ) );
-			memcpy( entry.ctx->cl.entityBaselines, ctx->cl.entityBaselines, sizeof( ctx->cl.entityBaselines ) );
-			entry.ctx->clc.checksumFeed = ctx->clc.checksumFeed;
+			memcpy( entry.ctx->cl.entityBaselines, cctx->ctx.cl.entityBaselines, sizeof( cctx->ctx.cl.entityBaselines ) );
+			entry.ctx->clc.checksumFeed = cctx->ctx.clc.checksumFeed;
 			entry.ctx->messageExtraByte = gamestateMetadata->messageExtraByte;
 			ctx = entry.ctx;
 			ctx->clc.serverMessageSequence = gamestateMetadata->serverMessageSequence + 1;
@@ -1272,6 +1311,7 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 			ctx = &cctx->ctx;
 		}
 
+		ctx = entry.ctx;
 		for ( int commandNum = firstServerCommand; commandNum <= entry.ctx->clc.serverCommandSequence; commandNum++ ) {
 			char* command = entry.ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
 
@@ -1302,6 +1342,7 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 				CL_ConfigstringModified();
 			}
 		}
+		ctx = &cctx->ctx;
 
 		//int firstServerCommand = ctx->clc.lastExecutedServerCommand;
 		//for ( int matchIdx = 0; matchIdx < mergedCtx.numMatches; matchIdx++ ) {
@@ -1519,40 +1560,55 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 			printf( "%d ", matches[matchIdx] );
 		}
 		printf( "\n" );*/
+		}
+		}
 
 advanceLoop:
 		// for all demos that have this frame, advance to the next frame.
 		if ( !entry.eos ) {
 			ctx = &cctx->ctx;
 			msg_t *msg = ReadNextMessage( &entry );
-			if ( demo->tailLen != 0 ) {
-				if ( demo->tailLen > 0 ) {  // < 0 signals no tail, == 0 signals -1 -1 tail.
-					fwrite( demo->tail, demo->tailLen, 1, outFile );
+			qboolean allDone = qtrue;
+			for ( int d = startDemoIdx; d < endDemoIdx; d++ ) {
+				demoMetadata_t *demo = &cctx->demos[d];
+				if ( !states[d].done ) {
+					if ( demo->tailLen != 0 ) {
+						if ( demo->tailLen > 0 && demo->tail != NULL ) {  // < 0 signals no tail, == 0 signals -1 -1 tail.
+							fwrite( demo->tail, demo->tailLen, 1, states[d].outFile );
+						}
+						free( demo->tail );
+						demo->tail = NULL;
+						// demo->tailLen = 0;
+					}
+					if ( msg == nullptr || demo->eos ) {
+						states[d].done = qtrue;
+					} else {
+						allDone = qfalse;
+					}
 				}
-				free( demo->tail );
-				demo->tail = NULL;
-				// demo->tailLen = 0;
 			}
-			if ( msg == nullptr || demo->eos ) {
+			if ( msg != nullptr ) {
+				FreeMsg( msg );
+			}
+			if ( msg == nullptr || allDone ) {
 				entry.eos = qtrue;
 				break;
 			}
-			FreeMsg( msg );
 		}
 	}
 
-	{
-		// finish up
+	for ( int d = startDemoIdx; d < endDemoIdx; d++ ) {
+		demoMetadata_t *demo = &cctx->demos[d];
 		if ( demo->tailLen == 0 ) {
 			int len = -1;
-			fwrite( &len, 4, 1, outFile );
-			fwrite( &len, 4, 1, outFile );
+			fwrite( &len, 4, 1, states[d].outFile );
+			fwrite( &len, 4, 1, states[d].outFile );
 		}
+		free( states[d].ctx );
+		fclose( states[d].outFile );
 	}
-
+	free( states );
 	FS_FCloseFile( entry.fp );
-	free( entry.ctx );
-	fclose( outFile );
 
 	FILE *metaFile;
 	if ( Q_strncmp( outFilename, "-", 2 ) ) {
@@ -1581,7 +1637,7 @@ int main(int argc, char** argv)
 	}
 
 	int clientnum = atoi(argv[2] );
-	char *inFile = argv[1];
-	char *outFile = argc > 3 ? argv[3] : "";
+	const char *inFile = argv[1];
+	const char *outFile = argc > 3 ? argv[3] : "";
 	RunSplit( inFile, clientnum, outFile );
 }
