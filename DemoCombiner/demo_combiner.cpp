@@ -711,6 +711,11 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					owners[entIdx] = (prev_owners[entIdx] & matchesMask);
 				}
 			}*/
+			for ( int entIdx = 0; entIdx < MAX_GENTITIES; entIdx++ ) {
+				if ( owners[entIdx] != 0 ) {
+					owners[entIdx] |= ( prev_owners[entIdx] & ~matchesMask );
+				}
+			}
 
 			// if there were portals visible, there may be out of order entities
 			// in the list which will need to be resorted for the delta compression
