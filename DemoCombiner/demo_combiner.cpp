@@ -405,6 +405,8 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			}
 		}
 		mergedCtx.ctx = *entryList[minIdx].ctx;
+		Com_Memset( &mergedCtx.ctx.cl.snap, 0, sizeof( mergedCtx.ctx.cl.snap ) );
+		Com_Memset( mergedCtx.ctx.cl.snapshots, 0, sizeof( mergedCtx.ctx.cl.snapshots ) );
 	}
 	mergedCtx.ctx.clc.lastExecutedServerCommand = mergedCtx.ctx.clc.serverCommandSequence = 0; // entryList[0].firstServerCommand;
 	mergedCtx.ctx.clc.serverCommandSequence--;
@@ -747,6 +749,16 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		snap.valid = qtrue;
 		snap.serverTime = frameTime;
 
+		// clear the valid flags of any snapshots between the last received and this one
+		{
+			int oldMessageNum = ctx->cl.snap.messageNum + 1;
+			if ( snap.messageNum - oldMessageNum >= PACKET_BACKUP ) {
+				oldMessageNum = snap.messageNum - ( PACKET_BACKUP - 1 );
+			}
+			for ( ; oldMessageNum < snap.messageNum; oldMessageNum++ ) {
+				ctx->cl.snapshots[oldMessageNum & PACKET_MASK].valid = qfalse;
+			}
+		}
 		// copy new snap into structs
 		ctx->cl.snap = ctx->cl.snapshots[snap.messageNum & PACKET_MASK] = snap;
 
