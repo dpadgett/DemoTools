@@ -47,6 +47,16 @@ static int s_msgPoolIdx = 0;
 void FreeMsg( msg_t *msg ) {
 }
 
+static void ReadRemainingDemoTail( demoEntry_t *demo ) {
+	int chunkSize = 1024;
+	int readCount = 0;
+	for (
+		demo->metadata->tail = (byte*) realloc( demo->metadata->tail, demo->metadata->tailLen + chunkSize );
+		( readCount = FS_Read( demo->metadata->tail + demo->metadata->tailLen, chunkSize, demo->fp ) ) > 0;
+		demo->metadata->tailLen += readCount,
+		demo->metadata->tail = (byte*) realloc( demo->metadata->tail, demo->metadata->tailLen + chunkSize ) ) {}
+}
+
 // returns demoFinished
 // caller must free demo tail if not wanted
 msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
@@ -56,13 +66,7 @@ msg_t *ReadNextMessageRaw( demoEntry_t *demo ) {
 	MSG_Init( msg, msgData, MAX_MSGLEN );
 	if ( !CL_ReadDemoMessageWithBuf( demo->fp, msg, &demo->metadata->tailLen, &demo->metadata->tail ) ) {
 		// make sure we reach the end of the file.  the message parsing bails at the first point it can't parse which could leave extra data.
-		int chunkSize = 1024;
-		int readCount = 0;
-		for (
-			demo->metadata->tail = (byte*) realloc( demo->metadata->tail, demo->metadata->tailLen + chunkSize );
-			( readCount = FS_Read( demo->metadata->tail + demo->metadata->tailLen, chunkSize, demo->fp ) ) > 0;
-			demo->metadata->tailLen += readCount,
-			demo->metadata->tail = (byte*) realloc( demo->metadata->tail, demo->metadata->tailLen + chunkSize ) ) {}
+		ReadRemainingDemoTail( demo );
 
 		return nullptr;
 	}
@@ -87,6 +91,7 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			CL_ParseServerMessage( msg );
 		} catch ( int ) {
 			// thrown code means it wasn't a fatal error, so we can still dump what we had
+			ReadRemainingDemoTail( demo );
 			return msg;
 		}
 
