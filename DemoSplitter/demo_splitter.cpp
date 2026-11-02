@@ -1126,6 +1126,17 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			continue;
 		}
 		demoMetadata_t* demo = &cctx->demos[d];
+		if ( demo->eos || demo->firstFrameTime == -1 ) {
+			if ( demo->tailLen != 0 ) {
+				if ( demo->tailLen > 0 && demo->tail != NULL ) {
+					fwrite( demo->tail, demo->tailLen, 1, states[d].outFile );
+				}
+				free( demo->tail );
+				demo->tail = NULL;
+			}
+			states[d].done = qtrue;
+			continue;
+		}
 		int clientnum = demo->clientnum;
 		entry.ctx = states[d].ctx;
 		FILE *outFile = states[d].outFile;
