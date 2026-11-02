@@ -786,7 +786,8 @@ advanceLoop:
 			if ( !entryList[idx].eos ) {
 				ctx = entryList[idx].ctx;
 				msg_t *msg = ReadNextMessage( &entryList[idx] );
-				if ( msg == nullptr ) {
+				if ( msg == nullptr || !ctx->cl.newSnapshots ) {
+					FreeMsg( msg );
 					entryList[idx].eos = qtrue;
 					entryList[idx].metadata->eos = qtrue;
 					continue;
