@@ -27,14 +27,14 @@ CC = gcc
 CONFIG = -O3 -DNDEBUG
 #CONFIG = -O0 -g -DNDEBUG
 #CONFIG = -g3 -D_DEBUG
-INCLUDES = -I../OpenJK/codemp -I../OpenJK/shared -I../JKDemoMetadata -I../DemoTrimmer
+INCLUDES = -I. -I../OpenJK/codemp -I../OpenJK/shared -I../JKDemoMetadata -I../DemoTrimmer
 DEFINES = -DARCH_STRING=\"arm\" -DDEDICATED -DFINAL_BUILD -D_CONSOLE
 OPTIONS = -std=c++11 -Wall -Wno-invalid-offsetof -Wno-write-strings -Wno-comment -fsigned-char -fvisibility=hidden
 FLAGS = $(INCLUDES) $(DEFINES) $(OPTIONS) $(CONFIG)
 LIBS = -lm -lstdc++ -ljansson
 
 # Target file
-TARGET = demochanger
+TARGET = democombiner
 
 # Object Files
 OJKSRCS = \
@@ -45,12 +45,13 @@ OJKSRCS = \
 	shared/qcommon/q_string.o
 OJKFILES = $(notdir $(OJKSRCS))
 LOCALFILES = \
-	demo_changer.o \
+	combined_demo_utils.o \
+	demo_combiner.o \
+	enhanced_msg.o \
 	../JKDemoMetadata/cl_parse.o \
 	../JKDemoMetadata/cmd.o \
 	../JKDemoMetadata/deps.o \
-	../JKDemoMetadata/utils.o \
-	../DemoTrimmer/demo_utils.o
+	../JKDemoMetadata/utils.o
 FILES = $(OJKFILES) $(LOCALFILES)
 
 # "make"
@@ -58,11 +59,11 @@ $(TARGET):  $(FILES)
 	$(CC) -o $(TARGET) $(FILES) $(LIBS)
 	chmod +x $(TARGET)
 
-# "make .c.o"
-.c.o:
+# "make %.o"
+%.o: %.c
 	$(CC) $(FLAGS) -c $< -o $@
 
-.cpp.o:
+%.o: %.cpp
 	$(CC) $(FLAGS) -c $< -o $@
 
 $(OJKFILES):
