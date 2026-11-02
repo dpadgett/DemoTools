@@ -279,7 +279,7 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 		if ( cctx->matchedClients & ( 1 << i ) ) {
 			int deltaNum = MSG_ReadByte( msg );
 			cctx->deltasnap[i] = deltaNum;
-			if ( deltaNum == 0 ) {
+			if ( deltaNum == 0 || ( deltaNum & 0x80 ) ) {
 				int raIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << i ) ? 0 : 1;
 				cctx->serverReliableAcknowledge[raIdx][i] = MSG_ReadLong( msg );
 			}
@@ -1477,8 +1477,8 @@ int RunSplit(char *inFile, int demoIdx, char *outFilename)
 		snap.serverCommandNum = entry.ctx->clc.serverCommandSequence;
 		snap.valid = qtrue;
 		snap.serverTime = ctx->cl.snap.serverTime;
-		snap.deltaNum = cctx->deltasnap[clientnum] == 0 ? -1 : snap.messageNum - cctx->deltasnap[clientnum];
-		if ( snap.deltaNum != -1 ) {
+		snap.deltaNum = ( cctx->deltasnap[clientnum] & 0x7f ) == 0 ? -1 : snap.messageNum - ( cctx->deltasnap[clientnum] & 0x7f );
+		if ( snap.deltaNum != -1 && !( cctx->deltasnap[clientnum] & 0x80 ) ) {
 			clSnapshot_t deltaSnap = entry.ctx->cl.snapshots[snap.deltaNum & PACKET_MASK];
 			firstServerCommand = deltaSnap.serverCommandNum + 1;
 		} else {

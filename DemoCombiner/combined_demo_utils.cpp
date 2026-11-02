@@ -564,7 +564,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 				snapFlagsIdentical = qfalse;
 			}
 			MSG_WriteByte( msg, cctx->deltasnap[i] );
-			if ( cctx->deltasnap[i] == 0 ) {
+			if ( cctx->deltasnap[i] == 0 || ( cctx->deltasnap[i] & 0x80 ) ) {
 				// non-delta frame, so write the reliable acknowledge for this client
 				int raIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << i ) ? 0 : 1;
 				MSG_WriteLong( msg, cctx->serverReliableAcknowledge[raIdx][i] );

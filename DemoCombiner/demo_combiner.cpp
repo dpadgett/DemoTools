@@ -460,6 +460,9 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 				int deltaNum = entryList[idx].ctx->cl.snap.deltaNum;
 				int messageNum = entryList[idx].ctx->cl.snap.messageNum;
 				mergedCtx.deltasnap[clientNum] = deltaNum == -1 ? 0 : messageNum - deltaNum;
+				if ( deltaNum != -1 && entryList[idx].ctx->cl.snapshots[deltaNum & PACKET_MASK].serverCommandNum != entryList[idx].ctx->serverReliableAcknowledge ) {
+					mergedCtx.deltasnap[clientNum] |= 0x80;
+				}
 				int psIdx = mergedCtx.curPlayerStateIdxMask & ( 1 << clientNum ) ? 1 : 0;
 				mergedCtx.playerStates[psIdx][clientNum] = entryList[idx].ctx->cl.snap.ps;
 				mergedCtx.playerStatesForcedFields[psIdx][clientNum] = entryList[idx].ctx->playerStateForcedFields[entryList[idx].ctx->cl.snap.messageNum & PACKET_MASK];
