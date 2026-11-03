@@ -430,7 +430,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 		MSG_ReadDeltaPlayerstateWithForcedFields( msg, &old->ps, &newSnap.ps, playerStateForcedFields, qfalse );
 		if (newSnap.ps.m_iVehicleNum)
 		{ //this means we must have written our vehicle's ps too
-			MSG_ReadDeltaPlayerstateWithForcedFields( msg, &old->vps, &newSnap.vps, vehPlayerStateForcedFields, qtrue );
+			MSG_ReadDeltaPlayerstateWithForcedFields( msg, old->ps.m_iVehicleNum ? &old->vps : NULL, &newSnap.vps, vehPlayerStateForcedFields, qtrue );
 		}
 	} else {
 		MSG_ReadDeltaPlayerstateWithForcedFields( msg, NULL, &newSnap.ps, playerStateForcedFields, qfalse );

@@ -27,6 +27,9 @@ static inline void CopyClSnapshot( clSnapshot_t* dst, const clSnapshot_t* src ) 
 	if ( src->ps.m_iVehicleNum ) {
 		*dst = *src;
 	} else {
+		if ( dst->ps.m_iVehicleNum ) {
+			Com_Memset( &dst->vps, 0, sizeof( dst->vps ) );
+		}
 		memcpy( dst, src, offsetof( clSnapshot_t, vps ) );
 		dst->numEntities = src->numEntities;
 		dst->parseEntitiesNum = src->parseEntitiesNum;
