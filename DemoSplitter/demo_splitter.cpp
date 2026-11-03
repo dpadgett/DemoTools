@@ -588,10 +588,13 @@ void CL_ParseMergedCommandString( msg_t* msg, qboolean firstServerCommandInMessa
 
 
 void CL_ParseDemoMetadata( msg_t* msg ) {
-	cctx->numDemos = MSG_ReadByte( msg );
-	cctx->demos = (demoMetadata_t *) calloc( cctx->numDemos, sizeof( *cctx->demos ) );
+	int count = MSG_ReadByte( msg );
+	int startIdx = cctx->numDemos;
+	cctx->numDemos += count;
+	cctx->demos = (demoMetadata_t *) realloc( cctx->demos, cctx->numDemos * sizeof( *cctx->demos ) );
+	Com_Memset( &cctx->demos[startIdx], 0, count * sizeof( *cctx->demos ) );
 
-	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
+	for ( int idx = startIdx; idx < cctx->numDemos; idx++ ) {
 		demoMetadata_t* demo = &cctx->demos[idx];
 		Q_strncpyz( demo->filename, MSG_ReadString( msg ), sizeof( demo->filename ) );
 		demo->fileMtime = MSG_ReadLong( msg );
@@ -610,6 +613,9 @@ void CL_ParseDemoEnded( msg_t* msg ) {
 void CL_ParseDemoGamestate( msg_t* msg ) {
 	int demoIdx = MSG_ReadByte( msg );
 	demoMetadata_t* demo = &cctx->demos[demoIdx];
+	if ( cctx->numGamestates >= (int) ARRAY_LEN( cctx->gamestates ) ) {
+		Com_Error( ERR_DROP, "CL_ParseDemoGamestate: MAX_GAMESTATES exceeded" );
+	}
 	gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[cctx->numGamestates++];
 	demo->lastGamestate = gamestateMetadata;
 	gamestateMetadata->demoIdx = demoIdx;
@@ -620,7 +626,7 @@ void CL_ParseDemoGamestate( msg_t* msg ) {
 	gamestateMetadata->messageExtraByte = MSG_ReadByte( msg );
 }
 
-static char configStringOverrides[MAX_GAMESTATE_CHARS * 12];
+static char configStringOverrides[MAX_GAMESTATE_CHARS * 64];
 static int configStringOverrideDataLen = 0;
 void CL_ParseDemoGamestateOverrides( msg_t* msg ) {
 	int demoIdx = MSG_ReadByte( msg );
@@ -1019,6 +1025,7 @@ typedef struct {
 	int framesSaved;
 	int serverCommandOffset;
 	int numHandledGamestates;
+	qboolean seqInitialized;
 	qboolean done;
 } splitDemoState_t;
 
@@ -1056,72 +1063,87 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 	}
 
 	if ( demoIdx == -1 ) {
+		ctx = &mergedCtx.ctx;
+		msg_t *msg;
+		while ( ( msg = ReadNextMessage( &entry ) ) != nullptr ) {
+			FreeMsg( msg );
+		}
 		for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
 			demoMetadata_t *demo = &cctx->demos[idx];
 			Com_Printf( "Demo %d: client %d, filename %s, mtime %d\n", idx, demo->clientnum, demo->filename, demo->fileMtime );
 		}
+		free( cctx->demos );
+		FS_FCloseFile( entry.fp );
 		return 0;
 	}
 
-	if ( cctx->numDemos <= demoIdx ) {
-		Com_Error( ERR_FATAL, "Demo %d exceeds numDemos %d!\n", demoIdx, cctx->numDemos );
-	}
+	int numInitializedDemos = 0;
+	splitDemoState_t *states = NULL;
 
-	int startDemoIdx = ( demoIdx == -2 ) ? 0 : demoIdx;
-	int endDemoIdx = ( demoIdx == -2 ) ? cctx->numDemos : demoIdx + 1;
-	splitDemoState_t *states = (splitDemoState_t *) calloc( cctx->numDemos, sizeof( splitDemoState_t ) );
-
-	for ( int d = startDemoIdx; d < endDemoIdx; d++ ) {
-		demoMetadata_t* demo = &cctx->demos[d];
-		Com_Printf( "Found demo: %s\n", demo->filename );
-		int clientnum = demo->clientnum;
-		states[d].ctx = (demoContext_t *) calloc( 1, sizeof( demoContext_t ) );
-		states[d].ctx->clc.clientNum = clientnum;
-		states[d].ctx->cl.gameState = mergedCtx.ctx.cl.gameState;
-		memcpy( states[d].ctx->cl.entityBaselines, mergedCtx.ctx.cl.entityBaselines, sizeof( mergedCtx.ctx.cl.entityBaselines ) );
-		states[d].ctx->clc.checksumFeed = mergedCtx.ctx.clc.checksumFeed;
-
-		const char *curOutFilename = outFilename;
-		char splitPathBuf[MAX_OSPATH];
-		if ( demoIdx == -2 ) {
-			const char *dir = ( outFilename && *outFilename ) ? outFilename : ".";
-			Com_sprintf( splitPathBuf, sizeof( splitPathBuf ), "%s/split_%d.dm_26", dir, d );
-			curOutFilename = splitPathBuf;
-		} else if ( !curOutFilename || !*curOutFilename ) {
-			curOutFilename = demo->filename;
+	auto initNewDemos = [&]() -> int {
+		if ( cctx->numDemos <= numInitializedDemos ) {
+			return 0;
 		}
+		states = (splitDemoState_t *) realloc( states, cctx->numDemos * sizeof( splitDemoState_t ) );
+		Com_Memset( &states[numInitializedDemos], 0, ( cctx->numDemos - numInitializedDemos ) * sizeof( splitDemoState_t ) );
+		for ( int d = numInitializedDemos; d < cctx->numDemos; d++ ) {
+			if ( demoIdx != -2 && d != demoIdx ) {
+				states[d].done = qtrue;
+				continue;
+			}
+			demoMetadata_t* demo = &cctx->demos[d];
+			Com_Printf( "Found demo: %s\n", demo->filename );
+			int clientnum = demo->clientnum;
+			states[d].ctx = (demoContext_t *) calloc( 1, sizeof( demoContext_t ) );
+			states[d].ctx->clc.clientNum = clientnum;
+			states[d].ctx->cl.gameState = mergedCtx.ctx.cl.gameState;
+			memcpy( states[d].ctx->cl.entityBaselines, mergedCtx.ctx.cl.entityBaselines, sizeof( mergedCtx.ctx.cl.entityBaselines ) );
+			states[d].ctx->clc.checksumFeed = mergedCtx.ctx.clc.checksumFeed;
 
-		FILE *outFile;
-		if ( !Q_strncmp( curOutFilename, "-", 2 ) ) {
-			outFile = stdout;
+			const char *curOutFilename = outFilename;
+			char splitPathBuf[MAX_OSPATH];
+			if ( demoIdx == -2 ) {
+				const char *dir = ( outFilename && *outFilename ) ? outFilename : ".";
+				Com_sprintf( splitPathBuf, sizeof( splitPathBuf ), "%s/split_%d.dm_26", dir, d );
+				curOutFilename = splitPathBuf;
+			} else if ( !curOutFilename || !*curOutFilename ) {
+				curOutFilename = demo->filename;
+			}
+
+			FILE *outFile;
+			if ( !Q_strncmp( curOutFilename, "-", 2 ) ) {
+				outFile = stdout;
 #ifdef WIN32
-			setmode(fileno(stdout), O_BINARY);
+				setmode(fileno(stdout), O_BINARY);
 #else
-			//freopen( NULL, "wb", stdout );
+				//freopen( NULL, "wb", stdout );
     // apparently this isn't necessary on linux :?
 #endif
-		} else {
-			outFile = fopen( curOutFilename, "wb" );
+			} else {
+				outFile = fopen( curOutFilename, "wb" );
+			}
+			if ( !outFile ) {
+				printf( "Couldn't open output file\n" );
+				return -1;
+			}
+			states[d].outFile = outFile;
 		}
-		if ( !outFile ) {
-			printf( "Couldn't open output file\n" );
-			return -1;
-		}
-		states[d].outFile = outFile;
+		numInitializedDemos = cctx->numDemos;
+		return 0;
+	};
 
-		if ( demo->lastGamestate ) {
-			states[d].ctx->clc.lastExecutedServerCommand = states[d].ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
-			states[d].ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
-			states[d].ctx->clc.serverCommandSequence--;
-			states[d].ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
-		}
+	if ( initNewDemos() != 0 ) {
+		return -1;
 	}
 
 	ctx = &mergedCtx.ctx;
 	int firstMissingFrame = -1;
 	json_t *missingFrames = json_array();
 	while ( true ) {
-		for ( int d = startDemoIdx; d < endDemoIdx; d++ ) {
+		if ( initNewDemos() != 0 ) {
+			return -1;
+		}
+		for ( int d = 0; d < numInitializedDemos; d++ ) {
 		if ( states[d].done ) {
 			continue;
 		}
@@ -1144,44 +1166,6 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		int &serverCommandOffset = states[d].serverCommandOffset;
 
 		if ( mergedCtx.ctx.cl.snap.serverTime < demo->firstFrameTime || !(cctx->matchedClients & ( 1 << clientnum )) ) {
-			// need to update configstrings for the gamestate if we haven't written it yet
-			if ( framesSaved == 0 ) {
-				char bigConfigString[BIG_INFO_STRING];
-				ctx = entry.ctx;
-				for ( int commandNum = entry.firstServerCommand; commandNum <= mergedCtx.ctx.clc.serverCommandSequence; commandNum++ ) {
-					char* command = mergedCtx.ctx.clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
-					if ( !( ( command[0] == 'c' && command[1] == 's' ) || ( command[0] == 'b' && command[1] == 'c' && command[2] == 's' ) ) ) {
-						continue;
-					}
-					Cmd_TokenizeString( command );
-					char* cmd = Cmd_Argv( 0 );
-					if ( !strcmp( cmd, "bcs0" ) ) {
-						Com_sprintf( bigConfigString, BIG_INFO_STRING, "cs %s \"%s", Cmd_Argv( 1 ), Cmd_Argv( 2 ) );
-					}
-					else if ( !strcmp( cmd, "bcs1" ) ) {
-						char* s = Cmd_Argv( 2 );
-						if ( strlen( bigConfigString ) + strlen( s ) >= BIG_INFO_STRING ) {
-							Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
-						}
-						strcat( bigConfigString, s );
-					}
-					else if ( !strcmp( cmd, "bcs2" ) ) {
-						char* s = Cmd_Argv( 2 );
-						if ( strlen( bigConfigString ) + strlen( s ) + 1 >= BIG_INFO_STRING ) {
-							Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
-						}
-						strcat( bigConfigString, s );
-						strcat( bigConfigString, "\"" );
-						command = bigConfigString;
-						Cmd_TokenizeString( command );
-						cmd = Cmd_Argv( 0 );
-					}
-					if ( !strcmp( cmd, "cs" ) ) {
-						CL_ConfigstringModified();
-					}
-				}
-				ctx = &mergedCtx.ctx;
-			}
 			continue;
 		}
 		//// find frame time
@@ -1264,6 +1248,16 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		//ctx = &mergedCtx.ctx;
 		//entry.ctx->clc.serverMessageSequence++;
 		{
+		if ( !states[d].seqInitialized ) {
+			entry.ctx->cl.gameState = mergedCtx.ctx.cl.gameState;
+			if ( demo->lastGamestate ) {
+				entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
+				entry.ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
+				entry.ctx->clc.serverCommandSequence--;
+				entry.ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
+			}
+			states[d].seqInitialized = qtrue;
+		}
 		entry.ctx->clc.serverMessageSequence = cctx->serverMessageSequence[clientnum];
 		////ctx->clc.reliableAcknowledge; // this doesn't need to be bumped
 		int raIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 1 : 0;
@@ -1552,13 +1546,53 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		}
 		}
 
+		// update configstrings on mergedCtx for any demos that join on subsequent frames
+		{
+			char bigConfigString[BIG_INFO_STRING];
+			ctx = &mergedCtx.ctx;
+			for ( int commandNum = entry.firstServerCommand; commandNum <= mergedCtx.ctx.clc.serverCommandSequence; commandNum++ ) {
+				char* command = mergedCtx.ctx.clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+				if ( !( ( command[0] == 'c' && command[1] == 's' ) || ( command[0] == 'b' && command[1] == 'c' && command[2] == 's' ) ) ) {
+					continue;
+				}
+				Cmd_TokenizeString( command );
+				char* cmd = Cmd_Argv( 0 );
+				if ( !strcmp( cmd, "bcs0" ) ) {
+					Com_sprintf( bigConfigString, BIG_INFO_STRING, "cs %s \"%s", Cmd_Argv( 1 ), Cmd_Argv( 2 ) );
+				}
+				else if ( !strcmp( cmd, "bcs1" ) ) {
+					char* s = Cmd_Argv( 2 );
+					if ( strlen( bigConfigString ) + strlen( s ) >= BIG_INFO_STRING ) {
+						Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+					}
+					strcat( bigConfigString, s );
+				}
+				else if ( !strcmp( cmd, "bcs2" ) ) {
+					char* s = Cmd_Argv( 2 );
+					if ( strlen( bigConfigString ) + strlen( s ) + 1 >= BIG_INFO_STRING ) {
+						Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+					}
+					strcat( bigConfigString, s );
+					strcat( bigConfigString, "\"" );
+					command = bigConfigString;
+					Cmd_TokenizeString( command );
+					cmd = Cmd_Argv( 0 );
+				}
+				if ( !strcmp( cmd, "cs" ) ) {
+					CL_ConfigstringModified();
+				}
+			}
+		}
+
 advanceLoop:
 		// for all demos that have this frame, advance to the next frame.
 		if ( !entry.eos ) {
 			ctx = &cctx->ctx;
 			msg_t *msg = ReadNextMessage( &entry );
-			qboolean allDone = qtrue;
-			for ( int d = startDemoIdx; d < endDemoIdx; d++ ) {
+			if ( initNewDemos() != 0 ) {
+				return -1;
+			}
+			for ( int d = 0; d < numInitializedDemos; d++ ) {
 				demoMetadata_t *demo = &cctx->demos[d];
 				if ( !states[d].done ) {
 					if ( demo->tailLen != 0 ) {
@@ -1571,22 +1605,31 @@ advanceLoop:
 					}
 					if ( msg == nullptr || demo->eos ) {
 						states[d].done = qtrue;
-					} else {
-						allDone = qfalse;
 					}
 				}
 			}
 			if ( msg != nullptr ) {
 				FreeMsg( msg );
 			}
-			if ( msg == nullptr || allDone ) {
+			qboolean shouldStop = ( msg == nullptr ) ? qtrue : qfalse;
+			if ( demoIdx >= 0 && demoIdx < numInitializedDemos && states[demoIdx].done ) {
+				shouldStop = qtrue;
+			}
+			if ( shouldStop ) {
 				entry.eos = qtrue;
 				break;
 			}
 		}
 	}
 
-	for ( int d = startDemoIdx; d < endDemoIdx; d++ ) {
+	if ( demoIdx >= 0 && cctx->numDemos <= demoIdx ) {
+		Com_Error( ERR_FATAL, "Demo %d exceeds numDemos %d!\n", demoIdx, cctx->numDemos );
+	}
+
+	for ( int d = 0; d < numInitializedDemos; d++ ) {
+		if ( !states[d].outFile ) {
+			continue;
+		}
 		demoMetadata_t *demo = &cctx->demos[d];
 		if ( demo->tailLen == 0 ) {
 			int len = -1;
@@ -1597,6 +1640,7 @@ advanceLoop:
 		fclose( states[d].outFile );
 	}
 	free( states );
+	free( cctx->demos );
 	FS_FCloseFile( entry.fp );
 
 	FILE *metaFile;

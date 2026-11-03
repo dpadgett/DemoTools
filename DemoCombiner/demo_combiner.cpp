@@ -38,6 +38,8 @@ typedef struct {
 	// idx of merged server command seq where the last server cmd from this demo was
 	int serverCommandSyncIdx;
 	demoMetadata_t* metadata;
+	gamestateMetadata_t initialGamestates[16];
+	int numInitialGamestates;
 } demoEntry_t;
 
 static msg_t s_msgPool[4];
@@ -147,6 +149,7 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 	oldCtx = ctx;
 	ctx = demo->ctx;
 	demo->metadata->clientnum = -1;
+	int prevNumGamestates = cctx->numGamestates;
 	// load initial state from demo
 	msg_t *msg;
 	if ( ( msg = ReadNextMessage( demo ) ) != nullptr ) {
@@ -156,10 +159,17 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 			demo->eos = qtrue;
 			demo->metadata->eos = qtrue;
 		}
+		demo->numInitialGamestates = cctx->numGamestates - prevNumGamestates;
+		for ( int i = 0; i < demo->numInitialGamestates; i++ ) {
+			demo->initialGamestates[i] = cctx->gamestates[prevNumGamestates + i];
+		}
+		cctx->numGamestates = prevNumGamestates;
+		demo->metadata->lastGamestate = demo->numInitialGamestates > 0 ? &demo->initialGamestates[demo->numInitialGamestates - 1] : nullptr;
 		ctx = oldCtx;
 		FreeMsg( msg );
 		return qtrue;
 	}
+	cctx->numGamestates = prevNumGamestates;
 	demo->metadata->firstFrameTime = -1;
 	demo->eos = qtrue;
 	demo->metadata->eos = qtrue;
@@ -313,11 +323,31 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			// return -1;
 		}
 	}
+	// Sort demos by firstFrameTime so metadata and gamestates can be streamed chronologically as clients join
+	for ( int i = 1; i < numDemos; i++ ) {
+		demoEntry_t keyEntry = entryList[i];
+		demoMetadata_t keyMeta = mergedCtx.demos[i];
+		int j = i - 1;
+		while ( j >= 0 && mergedCtx.demos[j].firstFrameTime > keyMeta.firstFrameTime ) {
+			entryList[j + 1] = entryList[j];
+			mergedCtx.demos[j + 1] = mergedCtx.demos[j];
+			j--;
+		}
+		entryList[j + 1] = keyEntry;
+		mergedCtx.demos[j + 1] = keyMeta;
+	}
+	for ( idx = 0; idx < numDemos; idx++ ) {
+		entryList[idx].metadata = &mergedCtx.demos[idx];
+		if ( entryList[idx].numInitialGamestates > 0 ) {
+			entryList[idx].metadata->lastGamestate = &entryList[idx].initialGamestates[entryList[idx].numInitialGamestates - 1];
+		}
+	}
+	mergedCtx.numDemos = 0;
 	// start with a base ctx
 	// should be the earliest one to pick up earliest configstrings
 	// note this could actually be wrong cuz sometimes serverTime resets on map restart
 	{
-		int minTime = entryList[0].ctx->cl.snap.serverTime;
+		int minTime = (int) ( ( (unsigned int) -1 ) >> 1 );
 		int minIdx = 0;
 		for ( idx = 0; idx < numDemos; idx++ ) {
 			if ( !entryList[idx].eos && entryList[idx].ctx->cl.snap.serverTime < minTime ) {
@@ -370,6 +400,15 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			/*printf( "ERROR: couldn't find any frame\n" );
 			return -1;*/
 		}
+		while ( cctx->numDemos < numDemos && entryList[cctx->numDemos].metadata->firstFrameTime <= frameTime ) {
+			int newIdx = cctx->numDemos++;
+			for ( int g = 0; g < entryList[newIdx].numInitialGamestates; g++ ) {
+				gamestateMetadata_t *gs = &cctx->gamestates[cctx->numGamestates++];
+				*gs = entryList[newIdx].initialGamestates[g];
+				gs->demoIdx = newIdx;
+				entryList[newIdx].metadata->lastGamestate = gs;
+			}
+		}
 		// find all demos that got this frame
 		mergedCtx.numMatches = 0;
 		Com_Memset( mergedCtx.matches, 0, sizeof( mergedCtx.matches ) );
@@ -377,7 +416,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		Com_Memset( mergedCtx.deltasnap, 0, sizeof( mergedCtx.deltasnap ) );
 		//int numNonMatches = 0;
 		//int nonMatches[MAX_CLIENTS];
-		for ( idx = 0; idx < numDemos; idx++ ) {
+		for ( idx = 0; idx < cctx->numDemos; idx++ ) {
 			if ( entryList[idx].ctx->cl.snap.serverTime == frameTime && !entryList[idx].eos ) {
 				mergedCtx.matches[mergedCtx.numMatches++] = idx;
 				int clientNum = entryList[idx].ctx->clc.clientNum;
@@ -515,7 +554,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			// write header first before we update configstrings
 			writeMergedDemoHeader( outFile );
 		}
-		if ( cctx->numGamestates > cctx->numHandledGamestates ) {
+		if ( cctx->numDemos > cctx->numHandledDemos || cctx->numGamestates > cctx->numHandledGamestates ) {
 			writeMergedGamestateData( outFile );
 		}
 		for ( int matchIdx = 0; matchIdx < mergedCtx.numMatches; matchIdx++ ) {

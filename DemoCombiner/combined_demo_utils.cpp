@@ -102,6 +102,18 @@ void writeMergedGamestateData( FILE* fp ) {
 	MSG_WriteLong( &buf, reliableAcknowledgeMask );
 	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
 
+	if ( cctx->numDemos > cctx->numHandledDemos ) {
+		MSG_WriteByte( &buf, svc_demoMetadata );
+		MSG_WriteByte( &buf, cctx->numDemos - cctx->numHandledDemos );
+		for ( int idx = cctx->numHandledDemos; idx < cctx->numDemos; idx++, cctx->numHandledDemos++ ) {
+			demoMetadata_t* demo = &cctx->demos[idx];
+			MSG_WriteString( &buf, demo->filename );
+			MSG_WriteLong( &buf, demo->fileMtime );
+			MSG_WriteByte( &buf, demo->clientnum );
+			MSG_WriteLong( &buf, demo->firstFrameTime );
+		}
+	}
+
 	// write the demo file metadata for each demo combined
 	for ( int idx = cctx->numHandledGamestates; idx < cctx->numGamestates; idx++, cctx->numHandledGamestates++ ) {
 		MSG_WriteByte( &buf, svc_demoGamestate );
@@ -148,19 +160,21 @@ void writeMergedDemoHeader( FILE* fp ) {
 	MSG_WriteLong( &buf, reliableAcknowledgeMask );
 	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
 
-	// write the demo file metadata for each demo combined
-	MSG_WriteByte( &buf, svc_demoMetadata );
-	MSG_WriteByte( &buf, cctx->numDemos );
-	for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
-		demoMetadata_t* demo = &cctx->demos[idx];
-		MSG_WriteString( &buf, demo->filename );
-		MSG_WriteLong( &buf, demo->fileMtime );
-		MSG_WriteByte( &buf, demo->clientnum );
-		MSG_WriteLong( &buf, demo->firstFrameTime );
-		//MSG_WriteLong( &buf, demo->initialServerReliableAcknowledge );
-		//MSG_WriteLong( &buf, demo->initialServerMessageSequence );
-		//MSG_WriteLong( &buf, demo->initialServerCommandSequence );
-		//MSG_WriteByte( &buf, demo->initialMessageExtraByte );
+	if ( cctx->numDemos > cctx->numHandledDemos ) {
+		// write the demo file metadata for each demo combined
+		MSG_WriteByte( &buf, svc_demoMetadata );
+		MSG_WriteByte( &buf, cctx->numDemos - cctx->numHandledDemos );
+		for ( int idx = cctx->numHandledDemos; idx < cctx->numDemos; idx++, cctx->numHandledDemos++ ) {
+			demoMetadata_t* demo = &cctx->demos[idx];
+			MSG_WriteString( &buf, demo->filename );
+			MSG_WriteLong( &buf, demo->fileMtime );
+			MSG_WriteByte( &buf, demo->clientnum );
+			MSG_WriteLong( &buf, demo->firstFrameTime );
+			//MSG_WriteLong( &buf, demo->initialServerReliableAcknowledge );
+			//MSG_WriteLong( &buf, demo->initialServerMessageSequence );
+			//MSG_WriteLong( &buf, demo->initialServerCommandSequence );
+			//MSG_WriteByte( &buf, demo->initialMessageExtraByte );
+		}
 	}
 
 	MSG_WriteByte( &buf, svc_gamestate );

@@ -49,7 +49,7 @@ typedef struct combinedDemoContext_s {
 	// for current snapshot
 	int numMatches = 0;
 	// demo file index
-	int matches[MAX_CLIENTS];
+	int matches[256];
 	// bitmask
 	int32_t matchedClients;
 	// which snap was delta'd from for each matched client
@@ -72,10 +72,11 @@ typedef struct combinedDemoContext_s {
 	entityState_t parseEntitiesFloatForced[MAX_PARSE_ENTITIES];
 	int snapFlags[MAX_CLIENTS];
 	int numDemos;
+	int numHandledDemos;
 	demoMetadata_t *demos;
 	int numGamestates;
 	int numHandledGamestates;
-	gamestateMetadata_t gamestates[MAX_CLIENTS * 5];  // allow 5 gamestates per client
+	gamestateMetadata_t gamestates[1024];
 } combinedDemoContext_t;
 
 extern combinedDemoContext_t* cctx;
