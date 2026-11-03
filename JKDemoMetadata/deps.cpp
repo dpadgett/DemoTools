@@ -148,7 +148,21 @@ void CL_ConfigstringModified( void ) {
 		Com_Error( ERR_DROP, "CL_ConfigstringModified: bad index %i", index );
 	}
 	// get everything after "cs <num>"
-	s = Cmd_ArgsFrom(2);
+	static char rawCsBuf[BIG_INFO_STRING];
+	const char *fullCmd = Cmd_Cmd();
+	const char *firstQuote = strchr( fullCmd, '"' );
+	const char *lastQuote = firstQuote ? strrchr( firstQuote + 1, '"' ) : NULL;
+	if ( firstQuote && lastQuote ) {
+		size_t qlen = (size_t)( lastQuote - ( firstQuote + 1 ) );
+		if ( qlen >= sizeof( rawCsBuf ) ) {
+			qlen = sizeof( rawCsBuf ) - 1;
+		}
+		memcpy( rawCsBuf, firstQuote + 1, qlen );
+		rawCsBuf[qlen] = '\0';
+		s = rawCsBuf;
+	} else {
+		s = Cmd_ArgsFrom(2);
+	}
 
 	old = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[ index ];
 	if ( !strcmp( old, s ) ) {
