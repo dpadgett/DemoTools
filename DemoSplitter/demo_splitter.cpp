@@ -742,7 +742,7 @@ CL_ParseServerMessage
 */
 void CL_ParseSetGame( msg_t* msg );
 void CL_ParseDownload( msg_t* msg );
-void CL_ParseMergedServerMessage( msg_t* msg ) {
+void CL_ParseMergedServerMessage( msg_t* msg, qboolean metadataOnly = qfalse ) {
 	int			cmd;
 
 	if ( cl_shownet->integer == 2 ) {
@@ -816,6 +816,10 @@ void CL_ParseMergedServerMessage( msg_t* msg ) {
 			else {
 				SHOWNET( msg, svc_strings[cmd] );
 			}
+		}
+
+		if ( metadataOnly && cmd != svc_demoMetadata ) {
+			return;
 		}
 
 		// other commands
@@ -1057,24 +1061,31 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 	qboolean demoFinished = qfalse;
 	Com_Memset( &mergedCtx, 0, sizeof( mergedCtx ) );
 	// Com_Memset( mergedCtx.serverReliableAcknowledge, -1, sizeof( mergedCtx.serverReliableAcknowledge ) ); // so that it starts at 0 when unknown
-	if ( !ParseDemoContext( &entry ) ) {
-		printf( "Failed to parse demo context for demo %s\n", entry.filename );
-		return -1;
-	}
-
 	if ( demoIdx == -1 ) {
 		ctx = &mergedCtx.ctx;
 		msg_t *msg;
-		while ( ( msg = ReadNextMessage( &entry ) ) != nullptr ) {
+		while ( ( msg = ReadNextMessageRaw( &entry ) ) != nullptr ) {
+			try {
+				CL_ParseMergedServerMessage( msg, qtrue );
+			} catch ( int ) {
+				FreeMsg( msg );
+				break;
+			}
 			FreeMsg( msg );
 		}
 		for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
 			demoMetadata_t *demo = &cctx->demos[idx];
 			Com_Printf( "Demo %d: client %d, filename %s, mtime %d\n", idx, demo->clientnum, demo->filename, demo->fileMtime );
+			free( demo->tail );
 		}
 		free( cctx->demos );
 		FS_FCloseFile( entry.fp );
 		return 0;
+	}
+
+	if ( !ParseDemoContext( &entry ) ) {
+		printf( "Failed to parse demo context for demo %s\n", entry.filename );
+		return -1;
 	}
 
 	int numInitializedDemos = 0;
