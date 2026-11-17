@@ -13,6 +13,7 @@ typedef struct demoContext_s {
 	qboolean newGamestate;
 	qboolean hadDownload;
 	qboolean deltaFromInvalidFrame;
+	qboolean hadUnsupportedSvc;
 #define ENTITY_POOL_SIZE 65536
 #define MAX_BUFFERED_SERVER_COMMANDS 4096
 	char			serverCommands[MAX_BUFFERED_SERVER_COMMANDS][MAX_STRING_CHARS];

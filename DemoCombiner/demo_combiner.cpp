@@ -104,6 +104,9 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			if ( ctx->deltaFromInvalidFrame ) {
 				Com_Error( ERR_DROP, "CL_ParseSnapshot: delta from invalid frame" );
 			}
+			if ( ctx->hadUnsupportedSvc ) {
+				Com_Error( ERR_DROP, "CL_ParseServerMessage: unsupported svc in demo message" );
+			}
 		} catch ( int ) {
 			// thrown code means it wasn't a fatal error, so we can still dump what we had
 			ctx->cl.newSnapshots = qfalse;

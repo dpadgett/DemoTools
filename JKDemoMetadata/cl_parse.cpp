@@ -567,7 +567,10 @@ void CL_ParseServerMessage( msg_t *msg ) {
 	ctx->newGamestate = qfalse;
 	ctx->hadDownload = qfalse;
 	ctx->deltaFromInvalidFrame = qfalse;
+	ctx->hadUnsupportedSvc = qfalse;
 	qboolean firstServerCommandInMessage = qtrue;
+	qboolean hadSnapshotInMessage = qfalse;
+	qboolean hadGamestateInMessage = qfalse;
 
 	//
 	// parse the message
@@ -583,6 +586,9 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		if ( cmd == svc_EOF) {
 			if ( !ctx->hadDownload && msg->readcount != msg->cursize ) {
 				Com_Error( ERR_DROP, "CL_ParseServerMessage: readcount != cursize at svc_EOF" );
+			}
+			if ( !hadSnapshotInMessage && !hadGamestateInMessage ) {
+				ctx->hadUnsupportedSvc = qtrue;
 			}
 			SHOWNET( msg, "END OF MESSAGE" );
 			int readBits = msg->bit & 7;
@@ -609,16 +615,28 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			Com_Error (ERR_DROP,"CL_ParseServerMessage: Illegible server message\n");
 			break;
 		case svc_nop:
+			ctx->hadUnsupportedSvc = qtrue;
 			break;
 		case svc_serverCommand:
+			if ( hadSnapshotInMessage || hadGamestateInMessage ) {
+				ctx->hadUnsupportedSvc = qtrue;
+			}
 			CL_ParseCommandString( msg, firstServerCommandInMessage );
 			firstServerCommandInMessage = qfalse;
 			break;
 		case svc_gamestate:
+			if ( hadGamestateInMessage || hadSnapshotInMessage ) {
+				ctx->hadUnsupportedSvc = qtrue;
+			}
+			hadGamestateInMessage = qtrue;
 			CL_ParseGamestate( msg, firstServerCommandInMessage );
 			firstServerCommandInMessage = qfalse;
 			break;
 		case svc_snapshot:
+			if ( hadSnapshotInMessage || hadGamestateInMessage ) {
+				ctx->hadUnsupportedSvc = qtrue;
+			}
+			hadSnapshotInMessage = qtrue;
 			CL_ParseSnapshot( msg );
 			if ( cl_shownet->integer >= 1 && ctx->clc.clientNum == 2 ) {
 				Com_Printf( "Parsed snapshot delta %d, numEntities %d\n", ctx->cl.snap.deltaNum == -1 ? 0 : ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum, ctx->cl.snap.numEntities );
@@ -629,6 +647,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			}
 			break;
 		case svc_setgame:
+			ctx->hadUnsupportedSvc = qtrue;
 			CL_ParseSetGame( msg );
 			break;
 		case svc_download:
@@ -636,6 +655,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			ctx->hadDownload = qtrue;
 			break;
 		case svc_mapchange:
+			ctx->hadUnsupportedSvc = qtrue;
 			//if ( cls.cgameStarted )
 			//	CGVM_MapChange();
 			break;
