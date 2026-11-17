@@ -344,6 +344,143 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			// return -1;
 		}
 	}
+	qboolean needRefCtx = qfalse;
+	for ( idx = 0; idx < numDemos; idx++ ) {
+		if ( !entryList[idx].eos && entryList[idx].numInitialGamestates == 0 ) {
+			needRefCtx = qtrue;
+			break;
+		}
+	}
+	if ( needRefCtx ) {
+		int refIdx = -1;
+		int refMinTime = (int) ( ( (unsigned int) -1 ) >> 1 );
+		for ( idx = 0; idx < numDemos; idx++ ) {
+			if ( !entryList[idx].eos && entryList[idx].numInitialGamestates > 0 && entryList[idx].ctx->cl.snap.serverTime < refMinTime ) {
+				refMinTime = entryList[idx].ctx->cl.snap.serverTime;
+				refIdx = idx;
+			}
+		}
+		demoContext_t *refCtx = refIdx != -1 ? entryList[refIdx].ctx : nullptr;
+		demoContext_t *scanCtx = nullptr;
+		if ( !refCtx ) {
+			scanCtx = (demoContext_t *) calloc( 1, sizeof( demoContext_t ) );
+			demoContext_t *oldCtx = ctx;
+			ctx = scanCtx;
+			for ( idx = 0; idx < numDemos && !refCtx; idx++ ) {
+				fileHandle_t scanFp = 0;
+				FS_FOpenFileRead( entryList[idx].filename, &scanFp, qfalse );
+				if ( !scanFp ) {
+					continue;
+				}
+				Com_Memset( scanCtx, 0, sizeof( demoContext_t ) );
+				msg_t scanMsg;
+				byte scanMsgData[MAX_MSGLEN];
+				int dummyTailLen = 0;
+				byte *dummyTail = NULL;
+				while ( CL_ReadDemoMessageWithBuf( scanFp, ( MSG_Init( &scanMsg, scanMsgData, MAX_MSGLEN ), &scanMsg ), &dummyTailLen, &dummyTail ) ) {
+					free( dummyTail );
+					dummyTail = NULL;
+					dummyTailLen = 0;
+					try {
+						CL_ParseServerMessage( &scanMsg );
+					} catch ( int ) {
+						break;
+					}
+					if ( scanCtx->newGamestate ) {
+						refCtx = scanCtx;
+						break;
+					}
+				}
+				free( dummyTail );
+				FS_FCloseFile( scanFp );
+			}
+			if ( !refCtx ) {
+				Com_Memset( scanCtx, 0, sizeof( demoContext_t ) );
+				while ( 1 ) {
+					int minTime = (int) ( ( (unsigned int) -1 ) >> 1 );
+					for ( idx = 0; idx < numDemos; idx++ ) {
+						if ( !entryList[idx].eos && entryList[idx].ctx->cl.snap.serverTime < minTime ) {
+							minTime = entryList[idx].ctx->cl.snap.serverTime;
+						}
+					}
+					if ( minTime == (int) ( ( (unsigned int) -1 ) >> 1 ) ) {
+						break;
+					}
+					entityState_t *firstEnt[MAX_GENTITIES] = { 0 };
+					for ( idx = 0; idx < numDemos; idx++ ) {
+						if ( !entryList[idx].eos && entryList[idx].ctx->cl.snap.serverTime == minTime ) {
+							clSnapshot_t *snap = &entryList[idx].ctx->cl.snap;
+							for ( int j = 0; j < snap->numEntities; j++ ) {
+								entityState_t *ent = entryList[idx].ctx->parseEntityPtr[( snap->parseEntitiesNum + j ) & ( MAX_PARSE_ENTITIES - 1 )];
+								int num = ent->number;
+								if ( !firstEnt[num] ) {
+									firstEnt[num] = ent;
+								} else if ( memcmp( firstEnt[num], ent, sizeof( entityState_t ) ) != 0 ) {
+									for ( size_t off = 0; off < sizeof( entityState_t ); off += 4 ) {
+										int v1 = *(int *)( (byte *)firstEnt[num] + off );
+										int v2 = *(int *)( (byte *)ent + off );
+										if ( v1 != v2 ) {
+											int nz = v1 != 0 ? v1 : v2;
+											int *dst = (int *)( (byte *)&scanCtx->cl.entityBaselines[num] + off );
+											if ( *dst != nz ) {
+												*dst = nz;
+												scanCtx->cl.entityBaselines[num].number = num;
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+					for ( idx = 0; idx < numDemos; idx++ ) {
+						if ( !entryList[idx].eos && entryList[idx].ctx->cl.snap.serverTime == minTime ) {
+							ctx = entryList[idx].ctx;
+							msg_t *msg = ReadNextMessage( &entryList[idx] );
+							if ( msg == nullptr || !entryList[idx].ctx->cl.newSnapshots ) {
+								entryList[idx].eos = qtrue;
+							} else {
+								FreeMsg( msg );
+							}
+						}
+					}
+				}
+				refCtx = scanCtx;
+				for ( idx = 0; idx < numDemos; idx++ ) {
+					if ( entryList[idx].metadata->firstFrameTime != -1 ) {
+						entryList[idx].eos = qfalse;
+					}
+				}
+			}
+			ctx = oldCtx;
+		}
+		for ( idx = 0; idx < numDemos; idx++ ) {
+			if ( !entryList[idx].eos && entryList[idx].numInitialGamestates == 0 ) {
+				int clientNum = entryList[idx].ctx->cl.snap.ps.clientNum;
+				if ( entryList[idx].metadata->filename[0] >= '0' && entryList[idx].metadata->filename[0] <= '9' ) {
+					clientNum = atoi( entryList[idx].metadata->filename );
+				}
+				if ( refCtx ) {
+					free( entryList[idx].metadata->tail );
+					entryList[idx].metadata->tail = NULL;
+					entryList[idx].metadata->tailLen = 0;
+					Com_Memset( entryList[idx].ctx, 0, sizeof( demoContext_t ) );
+					entryList[idx].ctx->cl.gameState = refCtx->cl.gameState;
+					memcpy( entryList[idx].ctx->cl.entityBaselines, refCtx->cl.entityBaselines, sizeof( entryList[idx].ctx->cl.entityBaselines ) );
+					memcpy( entryList[idx].ctx->entityBaselinesFloatForced, refCtx->entityBaselinesFloatForced, sizeof( entryList[idx].ctx->entityBaselinesFloatForced ) );
+					entryList[idx].ctx->clc.checksumFeed = refCtx->clc.checksumFeed;
+					entryList[idx].currentMap = 0;
+					entryList[idx].eos = qfalse;
+					entryList[idx].metadata->eos = qfalse;
+					FS_FCloseFile( entryList[idx].fp );
+					FS_FOpenFileRead( entryList[idx].filename, &entryList[idx].fp, qfalse );
+					ParseDemoContext( &entryList[idx] );
+				}
+				entryList[idx].ctx->clc.clientNum = clientNum;
+				entryList[idx].metadata->clientnum = clientNum;
+			}
+		}
+		free( scanCtx );
+	}
 	// Sort demos by firstFrameTime so metadata and gamestates can be streamed chronologically as clients join
 	for ( int i = 1; i < numDemos; i++ ) {
 		demoEntry_t keyEntry = entryList[i];

@@ -1283,6 +1283,14 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 				entry.ctx->serverReliableAcknowledge = initSra;
 				entry.ctx->clc.serverCommandSequence--;
 				entry.ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
+			} else {
+				int sraIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 0 : 1;
+				entry.ctx->serverReliableAcknowledge = cctx->serverReliableAcknowledge[sraIdx][clientnum];
+				entry.ctx->clc.lastExecutedServerCommand = entry.ctx->serverReliableAcknowledge + 1;
+				entry.ctx->clc.serverCommandSequence = entry.ctx->serverReliableAcknowledge;
+				memcpy( entry.ctx->cl.entityBaselines, cctx->ctx.cl.entityBaselines, sizeof( cctx->ctx.cl.entityBaselines ) );
+				memcpy( entry.ctx->entityBaselinesFloatForced, cctx->ctx.entityBaselinesFloatForced, sizeof( cctx->ctx.entityBaselinesFloatForced ) );
+				entry.ctx->clc.checksumFeed = cctx->ctx.clc.checksumFeed;
 			}
 			states[d].seqInitialized = qtrue;
 		}
