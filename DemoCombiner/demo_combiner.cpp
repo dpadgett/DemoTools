@@ -626,7 +626,38 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			return -1;*/
 		}
 		while ( cctx->numDemos < numDemos && entryList[cctx->numDemos].metadata->firstFrameTime <= frameTime ) {
-			int newIdx = cctx->numDemos++;
+			int newIdx = cctx->numDemos;
+			if ( !entryList[newIdx].eos ) {
+				qboolean clientConflict = qfalse;
+				qboolean needFlushEnded = qfalse;
+				for ( int k = 0; k < newIdx; k++ ) {
+					if ( entryList[k].metadata->clientnum == entryList[newIdx].metadata->clientnum ) {
+						if ( !entryList[k].eos ) {
+							clientConflict = qtrue;
+							break;
+						} else if ( !entryList[k].metadata->eosSent ) {
+							needFlushEnded = qtrue;
+						}
+					}
+				}
+				if ( clientConflict ) {
+					FS_FCloseFile( entryList[newIdx].fp );
+					FS_FOpenFileRead( entryList[newIdx].filename, &entryList[newIdx].fp, qfalse );
+					free( entryList[newIdx].metadata->tail );
+					entryList[newIdx].metadata->tail = NULL;
+					entryList[newIdx].metadata->tailLen = 0;
+					ReadRemainingDemoTail( &entryList[newIdx] );
+					entryList[newIdx].eos = qtrue;
+					entryList[newIdx].metadata->eos = qtrue;
+					entryList[newIdx].metadata->firstFrameTime = -1;
+					entryList[newIdx].metadata->lastGamestate = nullptr;
+					entryList[newIdx].numInitialGamestates = 0;
+				} else if ( needFlushEnded && framesSaved > 0 ) {
+					ctx = &mergedCtx.ctx;
+					writeTailData( outFile );
+				}
+			}
+			cctx->numDemos++;
 			if ( entryList[newIdx].eos ) {
 				for ( int g = 0; g < entryList[newIdx].numInitialGamestates; g++ ) {
 					gamestateMetadata_t *gs = AllocCombinedGamestate( cctx );
@@ -718,6 +749,9 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					nonMatches[numNonMatches++] = idx;
 				}
 			}*/
+		}
+		if ( mergedCtx.numMatches == 0 ) {
+			continue;
 		}
 		// numMatches must always be >0
 		//ctx = entryList[mergedCtx.matches[0]].ctx;
