@@ -1224,7 +1224,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		int &framesSaved = states[d].framesSaved;
 		int &serverCommandOffset = states[d].serverCommandOffset;
 
-		if ( mergedCtx.ctx.cl.snap.serverTime < demo->firstFrameTime || !(cctx->matchedClients & ( 1 << clientnum )) ) {
+		if ( ( framesSaved == 0 && mergedCtx.ctx.cl.snap.serverTime != demo->firstFrameTime ) || !(cctx->matchedClients & ( 1 << clientnum )) ) {
 			continue;
 		}
 		//// find frame time
