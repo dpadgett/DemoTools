@@ -154,12 +154,13 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 	msg_t *msg;
 	if ( ( msg = ReadNextMessage( demo ) ) != nullptr ) {
 		demo->metadata->firstFrameTime = ctx->cl.snap.serverTime;
+		demo->numInitialGamestates = cctx->numGamestates - prevNumGamestates;
 		if ( !ctx->cl.newSnapshots ) {
 			demo->metadata->firstFrameTime = -1;
 			demo->eos = qtrue;
 			demo->metadata->eos = qtrue;
+			demo->numInitialGamestates = 0;
 		}
-		demo->numInitialGamestates = cctx->numGamestates - prevNumGamestates;
 		for ( int i = 0; i < demo->numInitialGamestates; i++ ) {
 			demo->initialGamestates[i] = cctx->gamestates[prevNumGamestates + i];
 		}
@@ -348,12 +349,23 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 	// note this could actually be wrong cuz sometimes serverTime resets on map restart
 	{
 		int minTime = (int) ( ( (unsigned int) -1 ) >> 1 );
-		int minIdx = 0;
+		int minIdx = -1;
 		for ( idx = 0; idx < numDemos; idx++ ) {
-			if ( !entryList[idx].eos && entryList[idx].ctx->cl.snap.serverTime < minTime ) {
+			if ( !entryList[idx].eos && entryList[idx].numInitialGamestates > 0 && entryList[idx].ctx->cl.snap.serverTime < minTime ) {
 				minTime = entryList[idx].ctx->cl.snap.serverTime;
 				minIdx = idx;
 			}
+		}
+		if ( minIdx == -1 ) {
+			for ( idx = 0; idx < numDemos; idx++ ) {
+				if ( !entryList[idx].eos && entryList[idx].ctx->cl.snap.serverTime < minTime ) {
+					minTime = entryList[idx].ctx->cl.snap.serverTime;
+					minIdx = idx;
+				}
+			}
+		}
+		if ( minIdx == -1 ) {
+			minIdx = 0;
 		}
 		mergedCtx.ctx.cl.gameState = entryList[minIdx].ctx->cl.gameState;
 		memcpy( mergedCtx.ctx.cl.entityBaselines, entryList[minIdx].ctx->cl.entityBaselines, sizeof( mergedCtx.ctx.cl.entityBaselines ) );
@@ -386,6 +398,22 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		}
 		if ( frameIdx == -1 ) {
 			ctx = &mergedCtx.ctx;
+			while ( cctx->numDemos < numDemos ) {
+				int newIdx = cctx->numDemos++;
+				for ( int g = 0; g < entryList[newIdx].numInitialGamestates; g++ ) {
+					gamestateMetadata_t *gs = &cctx->gamestates[cctx->numGamestates++];
+					*gs = entryList[newIdx].initialGamestates[g];
+					gs->demoIdx = newIdx;
+					entryList[newIdx].metadata->lastGamestate = gs;
+				}
+			}
+			if ( framesSaved == 0 && cctx->numDemos > 0 ) {
+				ctx->clc.serverMessageSequence++;
+				writeMergedDemoHeader( outFile );
+			}
+			if ( cctx->numDemos > cctx->numHandledDemos || cctx->numGamestates > cctx->numHandledGamestates ) {
+				writeMergedGamestateData( outFile );
+			}
 			if (firstMissingFrame != -1) {
 				int curFrame = getCurrentTime();
 				int missingLength = curFrame - firstMissingFrame;

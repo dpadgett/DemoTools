@@ -948,6 +948,11 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 		FreeMsg( msg );
 		return qtrue;
 	}
+	if ( demo->cctx->numDemos > 0 ) {
+		demo->eos = qtrue;
+		ctx = oldCtx;
+		return qtrue;
+	}
 	ctx = oldCtx;
 	return qfalse;
 }
@@ -1633,6 +1638,8 @@ advanceLoop:
 				entry.eos = qtrue;
 				break;
 			}
+		} else {
+			break;
 		}
 	}
 
