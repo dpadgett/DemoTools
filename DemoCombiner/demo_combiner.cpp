@@ -221,7 +221,7 @@ typedef struct netField_s {
 	unsigned	mCount;
 #endif
 } netField_t;
-extern netField_t entityStateFields[];
+extern netField_t entityStateFields[132];
 
 
 int CG_InClientBitflags(entityState_t *ent, int client)
@@ -908,6 +908,8 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			memset( owners, 0, sizeof( *owners ) * MAX_GENTITIES );
 
 			frame->numEntities = 0;
+			mergedCtx.numEntityOverrides = 0;
+			mergedCtx.entityOverrideClientMask = 0;
 
 			int matchesMask = 0;
 			for ( int matchIdx = 0; matchIdx < mergedCtx.numMatches; matchIdx++ ) {
@@ -931,11 +933,13 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 						if ( snapFloatForced[entNum].number ) {
 							Com_Memset( &snapFloatForced[entNum], 0, sizeof( entityState_t ) );
 						}
+					} else if ( !( owners[entNum] & clientBit ) && memcmp( ent, snapEnts[entNum], sizeof( entityState_t ) ) != 0 ) {
+						AddEntityOverride( &mergedCtx, clientNum, entNum, snapEnts[entNum], ent );
 					}
 					owners[entNum] |= clientBit;
 					if ( floatForced->number ) {
 						entityState_t *toFloatForced = &snapFloatForced[entNum];
-						for ( int i = 0; i < (int)( sizeof( entityState_t ) / 4 ) - 1; i++ ) {
+						for ( int i = 0; i < (int) ARRAY_LEN( entityStateFields ); i++ ) {
 							size_t offset = entityStateFields[i].offset;
 							if ( *(int*)( (byte*)floatForced + offset ) == 1 ) {
 								*(int*)( (byte*)toFloatForced + offset ) |= clientBit;
@@ -944,6 +948,11 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 						toFloatForced->number |= clientBit;
 					}
 				}
+				for ( int r = 0; r < dctx->numRemovedEntities; r++ ) {
+					int remEnt = dctx->removedEntities[r];
+					AddEntityOverride( &mergedCtx, clientNum, remEnt, &mergedCtx.ctx.cl.entityBaselines[remEnt], NULL );
+				}
+				dctx->numRemovedEntities = 0;
 
 				snap.ps = dsnap->ps;
 				matchesMask |= clientBit;

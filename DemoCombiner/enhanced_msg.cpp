@@ -466,7 +466,7 @@ void MSG_WriteDeltaEntityWithFloatsForcedOrFloatForced( msg_t* msg, struct entit
 
 	if ( lc == 0 ) {
 		// nothing at all changed
-		if ( !force ) {
+		if ( !force && !hasFloatForced ) {
 			return;		// nothing at all
 		}
 		// write two bits for no change
@@ -682,9 +682,8 @@ void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState
 		floatForced->number = hasForced;
 	} else if ( isFloatForced ) {
 		int mask = 0;
-		const int* toInts = (const int*)to;
-		for ( i = 1; i <= numFields; i++ ) {
-			mask |= toInts[i];
+		for ( i = 0; i < numFields; i++ ) {
+			mask |= *(const int*)( (const byte*)to + entityStateFields[i].offset );
 		}
 		to->number = mask;
 	}

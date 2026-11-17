@@ -26,6 +26,8 @@ typedef struct demoContext_s {
 	uint32_t		entityPoolIdx;
 	playerState_t	playerStateForcedFields[PACKET_BACKUP];
 	playerState_t	vehPlayerStateForcedFields[PACKET_BACKUP];
+	int				numRemovedEntities;
+	uint16_t		removedEntities[MAX_GENTITIES];
 } demoContext_t;
 
 extern demoContext_t *ctx;

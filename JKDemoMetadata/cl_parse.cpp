@@ -227,6 +227,7 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 
 	newframe->parseEntitiesNum = ctx->cl.parseEntitiesNum;
 	newframe->numEntities = 0;
+	ctx->numRemovedEntities = 0;
 
 	// delta from the entities present in oldframe
 	oldindex = 0;
@@ -311,7 +312,11 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 			if ( newnum == 244 ) {
 				//Com_Printf( "%d 244 baseline at %d deltanum %d\n", ctx->clc.clientNum, newframe->serverTime, oldframe == NULL ? -1 : newframe->messageNum - oldframe->messageNum );
 			}
+			int prevEntities = newframe->numEntities;
 			CL_DeltaEntity( msg, newframe, newnum, &ctx->cl.entityBaselines[newnum], qfalse );
+			if ( newframe->numEntities == prevEntities && ctx->numRemovedEntities < MAX_GENTITIES ) {
+				ctx->removedEntities[ctx->numRemovedEntities++] = (uint16_t)newnum;
+			}
 			continue;
 		}
 

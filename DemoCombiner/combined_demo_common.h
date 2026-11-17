@@ -10,7 +10,15 @@ enum svc_combined_ops_e {
 	svc_demoGamestate,
 	svc_demoGamestateOverrides,
 	svc_demoTailData,
+	svc_demoEntityOverrides,
 };
+
+typedef struct entityOverride_s {
+	int clientNum;
+	int entNum;
+	entityState_t *baseEnt;
+	entityState_t *ent;
+} entityOverride_t;
 
 // metadata for the gamestate message
 typedef struct gamestateMetadata_s {
@@ -81,6 +89,10 @@ typedef struct combinedDemoContext_s {
 	int numHandledGamestates;
 	int maxGamestates;
 	gamestateMetadata_t **gamestates;
+	int numEntityOverrides;
+	int maxEntityOverrides;
+	int entityOverrideClientMask;
+	entityOverride_t *entityOverrides;
 } combinedDemoContext_t;
 
 extern combinedDemoContext_t* cctx;
@@ -110,7 +122,26 @@ static inline void AddConfigStringOverride( gamestateMetadata_t *gs, int index, 
 	memcpy( gs->configStringOverride[idx], str, len );
 }
 
+static inline void AddEntityOverride( combinedDemoContext_t *c, int clientNum, int entNum, entityState_t *baseEnt, entityState_t *ent ) {
+	if ( c->numEntityOverrides >= c->maxEntityOverrides ) {
+		int newMax = c->maxEntityOverrides ? c->maxEntityOverrides * 2 : 64;
+		c->entityOverrides = (entityOverride_t*) realloc( c->entityOverrides, newMax * sizeof( entityOverride_t ) );
+		c->maxEntityOverrides = newMax;
+	}
+	entityOverride_t *ov = &c->entityOverrides[c->numEntityOverrides++];
+	ov->clientNum = clientNum;
+	ov->entNum = entNum;
+	ov->baseEnt = baseEnt;
+	ov->ent = ent;
+	c->entityOverrideClientMask |= ( 1 << clientNum );
+}
+
 static inline void FreeCombinedGamestates( combinedDemoContext_t *c ) {
+	free( c->entityOverrides );
+	c->entityOverrides = NULL;
+	c->numEntityOverrides = 0;
+	c->maxEntityOverrides = 0;
+	c->entityOverrideClientMask = 0;
 	if ( !c->gamestates ) {
 		return;
 	}

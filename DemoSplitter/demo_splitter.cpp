@@ -266,6 +266,8 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 	Com_Memset( &newSnap, 0, offsetof( clSnapshot_t, ps ) );
 	newSnap.numEntities = 0;
 	newSnap.parseEntitiesNum = 0;
+	cctx->numEntityOverrides = 0;
+	cctx->entityOverrideClientMask = 0;
 
 	// we will have read any new server commands in this
 	// message before we got to svc_snapshot
@@ -661,6 +663,32 @@ void CL_ParseTailData( msg_t* msg ) {
 	demo->tailLen += chunkLen;
 }
 
+void CL_ParseDemoEntityOverrides( msg_t* msg ) {
+	int count = MSG_ReadShort( msg );
+	entityState_t *snapEntByNum[MAX_GENTITIES] = { 0 };
+	for ( int entIdx = ctx->cl.snap.parseEntitiesNum; entIdx < ctx->cl.snap.parseEntitiesNum + ctx->cl.snap.numEntities; entIdx++ ) {
+		entityState_t *e = ctx->parseEntityPtr[entIdx & ( MAX_PARSE_ENTITIES - 1 )];
+		snapEntByNum[e->number] = e;
+	}
+	for ( int i = 0; i < count; i++ ) {
+		int clientNum = MSG_ReadByte( msg );
+		int entNum = MSG_ReadBits( msg, GENTITYNUM_BITS );
+		entityState_t *baseEnt = ( entNum >= 0 && entNum < MAX_GENTITIES && snapEntByNum[entNum] ) ? snapEntByNum[entNum] : &ctx->cl.entityBaselines[entNum];
+		if ( MSG_ReadBits( msg, 1 ) ) {
+			AddEntityOverride( cctx, clientNum, entNum, baseEnt, NULL );
+		} else {
+			int readNum = MSG_ReadBits( msg, GENTITYNUM_BITS );
+			uint32_t poolIdx = ++ctx->entityPoolIdx;
+			size_t poolSlot = poolIdx & ( ENTITY_POOL_SIZE - 1 );
+			entityState_t *state = &ctx->entityPool[poolSlot];
+			MSG_ReadDeltaEntity( msg, baseEnt, state, readNum );
+			ctx->entityPoolSlotIdx[poolSlot] = poolIdx;
+			ctx->entityPoolSlotVer[poolSlot] = 0;
+			AddEntityOverride( cctx, clientNum, entNum, baseEnt, state );
+		}
+	}
+}
+
 /*
 ==================
 CL_ParseGamestate
@@ -879,6 +907,9 @@ void CL_ParseMergedServerMessage( msg_t* msg, qboolean metadataOnly = qfalse ) {
 			break;
 		case svc_demoTailData:
 			CL_ParseTailData( msg );
+			break;
+		case svc_demoEntityOverrides:
+			CL_ParseDemoEntityOverrides( msg );
 			break;
 		}
 	}
@@ -1513,6 +1544,23 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			clSnapshot_t *frame = &snap;
 			int32_t *owners = mergedCtx.ent_owners[mergedCtx.ent_owner_idx];
 			int clientBit = 1 << clientnum;
+			entityState_t *clientOverrides[MAX_GENTITIES];
+			qboolean hasClientOverrides = ( cctx->numEntityOverrides > 0 && ( cctx->entityOverrideClientMask & clientBit ) ) ? qtrue : qfalse;
+			entry.ctx->numRemovedEntities = 0;
+			if ( hasClientOverrides ) {
+				memset( clientOverrides, 0, sizeof( clientOverrides ) );
+				for ( int ovIdx = 0; ovIdx < cctx->numEntityOverrides; ovIdx++ ) {
+					if ( cctx->entityOverrides[ovIdx].clientNum == clientnum ) {
+						if ( cctx->entityOverrides[ovIdx].ent == NULL ) {
+							if ( entry.ctx->numRemovedEntities < MAX_GENTITIES ) {
+								entry.ctx->removedEntities[entry.ctx->numRemovedEntities++] = (uint16_t) cctx->entityOverrides[ovIdx].entNum;
+							}
+						} else {
+							clientOverrides[cctx->entityOverrides[ovIdx].entNum] = cctx->entityOverrides[ovIdx].ent;
+						}
+					}
+				}
+			}
 
 			frame->numEntities = 0;
 			for ( int entIdx = ctx->cl.snap.parseEntitiesNum; entIdx < ctx->cl.snap.parseEntitiesNum + ctx->cl.snap.numEntities; entIdx++ ) {
@@ -1524,8 +1572,13 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 				int dstIdx = entry.ctx->cl.parseEntitiesNum & ( MAX_PARSE_ENTITIES - 1 );
 				entityState_t *floatForcedState = &entry.ctx->parseEntitiesFloatForced[dstIdx];
 				entry.ctx->cl.parseEntitiesNum++;
-				entry.ctx->parseEntityPtr[dstIdx] = ent;
-				entry.ctx->parseEntityVersion[dstIdx] = ctx->parseEntityVersion[parseIdx];
+				if ( hasClientOverrides && clientOverrides[ent->number] ) {
+					entry.ctx->parseEntityPtr[dstIdx] = clientOverrides[ent->number];
+					entry.ctx->parseEntityVersion[dstIdx] = 0;
+				} else {
+					entry.ctx->parseEntityPtr[dstIdx] = ent;
+					entry.ctx->parseEntityVersion[dstIdx] = ctx->parseEntityVersion[parseIdx];
+				}
 				entityState_t *srcFloatForced = &ctx->parseEntitiesFloatForced[parseIdx];
 				if ( srcFloatForced->number & clientBit ) {
 					floatForcedState->number = 1;

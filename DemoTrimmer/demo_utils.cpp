@@ -202,7 +202,8 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 	oldent = NULL;
 	newindex = 0;
 	oldindex = 0;
-	while ( newindex < to->numEntities || oldindex < from_num_entities ) {
+	int remindex = 0;
+	while ( newindex < to->numEntities || oldindex < from_num_entities || remindex < ctx->numRemovedEntities ) {
 		if ( newindex >= to->numEntities ) {
 			newnum = 9999;
 		} else {
@@ -216,6 +217,17 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 		} else {
 			oldent = ctx->parseEntityPtr[(from->parseEntitiesNum+oldindex) & (MAX_PARSE_ENTITIES-1)];
 			oldnum = oldent->number;
+		}
+
+		int remnum = ( remindex < ctx->numRemovedEntities ) ? ctx->removedEntities[remindex] : 9999;
+		if ( remnum < newnum && remnum < oldnum ) {
+			MSG_WriteBits( msg, remnum, GENTITYNUM_BITS );
+			MSG_WriteBits( msg, 1, 1 );
+			remindex++;
+			continue;
+		}
+		if ( remnum == newnum || remnum == oldnum ) {
+			remindex++;
 		}
 
 		if ( newnum == oldnum ) {
@@ -248,6 +260,7 @@ static void SV_EmitPacketEntities( clSnapshot_t *from, clSnapshot_t *to, msg_t *
 		}
 	}
 
+	ctx->numRemovedEntities = 0;
 	MSG_WriteBits( msg, (MAX_GENTITIES-1), GENTITYNUM_BITS );	// end of packetentities
 }
 

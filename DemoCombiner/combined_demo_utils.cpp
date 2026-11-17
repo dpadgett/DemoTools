@@ -909,6 +909,24 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	// delta encode the entities
 	SV_EmitPacketEntities( oldframe, frame, cctx->ent_owners[cctx->ent_owner_idx ^ 1], cctx->ent_owners[cctx->ent_owner_idx], msg );
 
+	if ( cctx->numEntityOverrides > 0 ) {
+		MSG_WriteByte( msg, svc_demoEntityOverrides );
+		MSG_WriteShort( msg, cctx->numEntityOverrides );
+		for ( int i = 0; i < cctx->numEntityOverrides; i++ ) {
+			entityOverride_t *ov = &cctx->entityOverrides[i];
+			MSG_WriteByte( msg, ov->clientNum );
+			MSG_WriteBits( msg, ov->entNum, GENTITYNUM_BITS );
+			if ( ov->ent == NULL ) {
+				MSG_WriteBits( msg, 1, 1 );
+			} else {
+				MSG_WriteBits( msg, 0, 1 );
+				MSG_WriteDeltaEntity( msg, ov->baseEnt, ov->ent, qtrue );
+			}
+		}
+		cctx->numEntityOverrides = 0;
+		cctx->entityOverrideClientMask = 0;
+	}
+
 	MSG_WriteByte( msg, svc_EOF );
 
 	// write extra bytes as needed
