@@ -31,7 +31,7 @@ Command strings are just saved off until cgame asks for them
 when it transitions a snapshot
 =====================
 */
-void CL_ParseCommandString( msg_t *msg, qboolean firstServerCommandInMessage ) {
+int CL_ParseCommandString( msg_t *msg, qboolean firstServerCommandInMessage ) {
 	char	*s;
 	int		seq;
 	int		index;
@@ -54,8 +54,10 @@ void CL_ParseCommandString( msg_t *msg, qboolean firstServerCommandInMessage ) {
 			Q_strncpyz( ctx->clc.serverCommands[ index ], s, sizeof( ctx->clc.serverCommands[ index ] ) );
 			Q_strncpyz( ctx->serverCommands[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ], s, sizeof( ctx->serverCommands[ 0 ] ) );
 			ctx->serverCommandSeq[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ] = seq + 1;
+		} else if ( Q_strncmp( ctx->serverCommands[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ], s, sizeof( ctx->serverCommands[ 0 ] ) ) != 0 ) {
+			ctx->hadUnsupportedSvc = qtrue;
 		}
-		return;
+		return seq;
 	}
 	ctx->clc.serverCommandSequence = seq;
 
@@ -63,6 +65,7 @@ void CL_ParseCommandString( msg_t *msg, qboolean firstServerCommandInMessage ) {
 	Q_strncpyz( ctx->clc.serverCommands[ index ], s, sizeof( ctx->clc.serverCommands[ index ] ) );
 	Q_strncpyz( ctx->serverCommands[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ], s, sizeof( ctx->serverCommands[ 0 ] ) );
 	ctx->serverCommandSeq[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ] = seq + 1;
+	return seq;
 }
 
 void CL_ParseRMG ( msg_t* msg )
@@ -579,6 +582,8 @@ void CL_ParseServerMessage( msg_t *msg ) {
 	qboolean firstServerCommandInMessage = qtrue;
 	qboolean hadSnapshotInMessage = qfalse;
 	qboolean hadGamestateInMessage = qfalse;
+	qboolean hadServerCommandInMessage = qfalse;
+	int lastServerCommandInMessage = 0;
 
 	//
 	// parse the message
@@ -596,6 +601,9 @@ void CL_ParseServerMessage( msg_t *msg ) {
 				Com_Error( ERR_DROP, "CL_ParseServerMessage: readcount != cursize at svc_EOF" );
 			}
 			if ( !hadSnapshotInMessage && !hadGamestateInMessage ) {
+				ctx->hadUnsupportedSvc = qtrue;
+			}
+			if ( hadServerCommandInMessage && lastServerCommandInMessage != ctx->clc.serverCommandSequence ) {
 				ctx->hadUnsupportedSvc = qtrue;
 			}
 			SHOWNET( msg, "END OF MESSAGE" );
@@ -629,7 +637,14 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			if ( hadSnapshotInMessage || hadGamestateInMessage ) {
 				ctx->hadUnsupportedSvc = qtrue;
 			}
-			CL_ParseCommandString( msg, firstServerCommandInMessage );
+			{
+				int cmdSeq = CL_ParseCommandString( msg, firstServerCommandInMessage );
+				if ( hadServerCommandInMessage && cmdSeq != lastServerCommandInMessage + 1 ) {
+					ctx->hadUnsupportedSvc = qtrue;
+				}
+				hadServerCommandInMessage = qtrue;
+				lastServerCommandInMessage = cmdSeq;
+			}
 			firstServerCommandInMessage = qfalse;
 			break;
 		case svc_gamestate:
