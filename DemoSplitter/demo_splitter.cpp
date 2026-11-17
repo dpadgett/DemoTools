@@ -1643,6 +1643,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			}
 		}
 
+		int prevMessageNum = snap.messageNum;
 		snap.messageNum = entry.ctx->clc.serverMessageSequence;
 		snap.serverCommandNum = entry.ctx->clc.serverCommandSequence;
 		snap.valid = qtrue;
@@ -1661,11 +1662,9 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		Com_Memcpy( snap.areamask, cctx->areamask[clientnum], ctx->areabytes );
 		entry.ctx->areabytes = ctx->areabytes;
 
-		//// copy new snap into backup array
-		CopyClSnapshot( &entry.ctx->cl.snapshots[snap.messageNum & PACKET_MASK], &snap );
-
 		entry.ctx->messageExtraByte = cctx->messageExtraByte[clientnum];
 
+		qboolean hadPrevFrame = framesSaved > 0 ? qtrue : qfalse;
 		if ( framesSaved > 0 ) {
 			ctx = entry.ctx;
 			writeDeltaSnapshot( firstServerCommand, outFile, qfalse, serverCommandOffset );
@@ -1678,6 +1677,18 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			// copy rest
 			framesSaved = 1;
 		}
+
+		if ( hadPrevFrame ) {
+			int oldMessageNum = prevMessageNum + 1;
+			if ( snap.messageNum - oldMessageNum >= PACKET_BACKUP ) {
+				oldMessageNum = snap.messageNum - ( PACKET_BACKUP - 1 );
+			}
+			for ( ; oldMessageNum < snap.messageNum; oldMessageNum++ ) {
+				entry.ctx->cl.snapshots[oldMessageNum & PACKET_MASK].valid = qfalse;
+			}
+		}
+		//// copy new snap into backup array
+		CopyClSnapshot( &entry.ctx->cl.snapshots[snap.messageNum & PACKET_MASK], &snap );
 		if ( framesSaved >= 7 ) {
 			//break;
 		}

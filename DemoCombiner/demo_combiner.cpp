@@ -677,6 +677,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					int deltaNum = entryList[idx].ctx->cl.snap.deltaNum;
 					int rawLastFrame = entryList[idx].ctx->snapLastFrame;
 					qboolean needSra = ( deltaNum <= 0
+						|| entryList[idx].ctx->cl.snapshots[deltaNum & PACKET_MASK].messageNum != deltaNum
 						|| entryList[idx].ctx->cl.snapshots[deltaNum & PACKET_MASK].serverCommandNum != entryList[idx].ctx->serverReliableAcknowledge ) ? qtrue : qfalse;
 					mergedCtx.deltasnap[clientNum] = rawLastFrame | ( needSra ? 0x100 : 0 );
 					int psIdx = mergedCtx.curPlayerStateIdxMask & ( 1 << clientNum ) ? 1 : 0;

@@ -346,11 +346,20 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 			lastframe = ctx->snapLastFrame ? ctx->snapLastFrame : ( ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum );
 			oldframe = NULL;
 		} else {
-			lastframe = 1;
-			if ( ctx->cl.snap.deltaNum > 0 && ctx->cl.snap.deltaNum >= ctx->cl.snap.messageNum - PACKET_BACKUP ) {
-				lastframe = ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum;
+			int reqDelta = ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum;
+			if ( reqDelta > 0 && reqDelta <= 255 ) {
+				clSnapshot_t *cand = &ctx->cl.snapshots[ctx->cl.snap.deltaNum & PACKET_MASK];
+				if ( cand->valid && cand->messageNum == ctx->cl.snap.deltaNum ) {
+					lastframe = reqDelta;
+					oldframe = cand;
+				} else {
+					lastframe = 1;
+					oldframe = &ctx->cl.snapshots[(ctx->cl.snap.messageNum - lastframe) & PACKET_MASK];
+				}
+			} else {
+				lastframe = 1;
+				oldframe = &ctx->cl.snapshots[(ctx->cl.snap.messageNum - lastframe) & PACKET_MASK];
 			}
-			oldframe = &ctx->cl.snapshots[(ctx->cl.snap.messageNum - lastframe) & PACKET_MASK];
 			if ( !oldframe->valid ) {
 				// not yet set
 				lastframe = 0;
