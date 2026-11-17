@@ -693,12 +693,12 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 		return h;
 	};
 	for ( int serverCommand = firstServerCommand; serverCommand <= ctx->clc.serverCommandSequence; serverCommand++ ) {
-		char* command = ctx->clc.serverCommands[serverCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
+		char* command = ctx->serverCommands[serverCommand & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 		uint32_t cmdHash = hashCmd( command );
 		MSG_WriteByte( msg, svc_serverCommand );
 		MSG_WriteLong( msg, serverCommand + serverCommandOffset );
 		// write bitmask of who should get this command
-		int bitmask = cctx->serverCommandBitmask[serverCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
+		int bitmask = cctx->serverCommandBitmask[serverCommand & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 		MSG_WriteLong( msg, bitmask );
 		qboolean buffered = qfalse;
 		for ( int commandIdx = Q_max( 0, cctx->serverCommandBufferCount - 1024 ); commandIdx < cctx->serverCommandBufferCount; commandIdx++ ) {

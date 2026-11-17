@@ -83,6 +83,7 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		entityEventSequence = ctx->cl.snap.ps.entityEventSequence;
 	}
 	ctx->cl.newSnapshots = qfalse;
+	int prevServerCommandSequence = ctx->clc.serverCommandSequence;
 	ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence + 1;
 	// only append the gamestates if a frame is found after them.  otherwise, the splitter won't write them out
 	int gamestateIdx = cctx->numGamestates;
@@ -97,14 +98,16 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			return msg;
 		}
 
-		if ( demo->metadata->lastGamestate == nullptr && !ctx->cl.newSnapshots && ctx->clc.serverCommandSequence > 0 ) {
+		if ( demo->metadata->lastGamestate == nullptr && prevServerCommandSequence == 0 && ctx->clc.serverCommandSequence > 0 ) {
+			ctx->clc.lastExecutedServerCommand = ctx->serverReliableAcknowledge + 1;
+		} else if ( demo->framesSaved == 0 && ( gamestateIdx > cctx->numGamestates ) && ctx->cl.newSnapshots && ctx->clc.serverCommandSequence > 0 && ctx->serverReliableAcknowledge + 1 < ctx->clc.lastExecutedServerCommand ) {
 			ctx->clc.lastExecutedServerCommand = ctx->serverReliableAcknowledge + 1;
 		}
-		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_RELIABLE_COMMANDS ) {
-			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10; // fudge factor
+		prevServerCommandSequence = ctx->clc.serverCommandSequence;
+		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_BUFFERED_SERVER_COMMANDS ) {
+			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_BUFFERED_SERVER_COMMANDS + 10; // fudge factor
 			for ( ; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
-				char* command = ctx->clc.serverCommands[ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 )];
-				if ( command[0] ) {
+				if ( ctx->serverCommandSeq[ctx->clc.lastExecutedServerCommand & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )] == ctx->clc.lastExecutedServerCommand + 1 ) {
 					break;
 				}
 			}
@@ -527,11 +530,9 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			idx = mergedCtx.matches[matchIdx];
 			demoContext_t* entryCtx = entryList[idx].ctx;
 			for ( int commandNum = entryCtx->clc.lastExecutedServerCommand; commandNum <= entryCtx->clc.serverCommandSequence; commandNum++ ) {
-				char* command = entryCtx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
-				Cmd_TokenizeString( command );
-				char* cmd = Cmd_Argv( 0 );
-				if ( cmd[0] == '\0' )
+				if ( entryCtx->serverCommandSeq[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )] != commandNum + 1 )
 					continue;
+				char* command = entryCtx->serverCommands[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 				// search for place to insert it
 				bool newCommand = qtrue;
 				int start = Q_max( firstServerCommand, entryList[idx].serverCommandSyncIdx );
@@ -539,10 +540,12 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					// normally start at sync idx even if it's in a previous frame, to account for frame drops
 					start = firstServerCommand;
 				}
-				for ( int snapCmdNum = start; snapCmdNum <= ctx->clc.serverCommandSequence; snapCmdNum++ ) {
-					if ( !Q_strncmp( command, ctx->clc.serverCommands[snapCmdNum & ( MAX_RELIABLE_COMMANDS - 1 )], MAX_STRING_CHARS ) ) {
+				bool isGamestateCmd = ( entryList[idx].metadata->lastGamestate != nullptr && commandNum <= entryList[idx].metadata->lastGamestate->serverCommandSequence && framesSaved == 0 );
+				int searchEnd = isGamestateCmd ? ( firstServerCommandToExecute - 1 ) : ctx->clc.serverCommandSequence;
+				for ( int snapCmdNum = start; snapCmdNum <= searchEnd; snapCmdNum++ ) {
+					if ( !Q_strncmp( command, ctx->serverCommands[snapCmdNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )], MAX_STRING_CHARS ) ) {
 						newCommand = qfalse;
-						mergedCtx.serverCommandBitmask[snapCmdNum % MAX_RELIABLE_COMMANDS] |= 1 << entryList[idx].ctx->clc.clientNum;
+						mergedCtx.serverCommandBitmask[snapCmdNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )] |= 1 << entryList[idx].ctx->clc.clientNum;
 						curCommand = snapCmdNum + 1;
 						entryList[idx].serverCommandSyncIdx = curCommand;
 						break;
@@ -552,7 +555,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					// insert it at index curCommand
 					ctx->clc.serverCommandSequence++;
 					ctx->clc.lastExecutedServerCommand++;
-					if ( commandNum <= entryList[idx].metadata->lastGamestate->serverCommandSequence && framesSaved == 0 ) {
+					if ( isGamestateCmd ) {
 						// don't execute this one, it arrived with the gamestate
 						firstServerCommandToExecute++;
 						if ( curCommand >= firstServerCommandToExecute ) {
@@ -561,18 +564,18 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					}
 					for ( int snapCmdNum = ctx->clc.serverCommandSequence; snapCmdNum > curCommand; snapCmdNum-- ) {
 						{
-							char* dest = ctx->clc.serverCommands[snapCmdNum & ( MAX_RELIABLE_COMMANDS - 1 )];
-							char* src = ctx->clc.serverCommands[( snapCmdNum - 1 ) & ( MAX_RELIABLE_COMMANDS - 1 )];
+							char* dest = ctx->serverCommands[snapCmdNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
+							char* src = ctx->serverCommands[( snapCmdNum - 1 ) & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 							memmove( dest, src, MAX_STRING_CHARS );
 						}
 						{
-							int* maskDest = &mergedCtx.serverCommandBitmask[snapCmdNum & ( MAX_RELIABLE_COMMANDS - 1 )];
-							int* maskSrc = &mergedCtx.serverCommandBitmask[( snapCmdNum - 1 ) & ( MAX_RELIABLE_COMMANDS - 1 )];
+							int* maskDest = &mergedCtx.serverCommandBitmask[snapCmdNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
+							int* maskSrc = &mergedCtx.serverCommandBitmask[( snapCmdNum - 1 ) & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 							*maskDest = *maskSrc;
 						}
 					}
-					Q_strncpyz( ctx->clc.serverCommands[curCommand & ( MAX_RELIABLE_COMMANDS - 1 )], command, MAX_STRING_CHARS );
-					mergedCtx.serverCommandBitmask[curCommand & ( MAX_RELIABLE_COMMANDS - 1 )] = 1 << entryList[idx].ctx->clc.clientNum;
+					Q_strncpyz( ctx->serverCommands[curCommand & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )], command, MAX_STRING_CHARS );
+					mergedCtx.serverCommandBitmask[curCommand & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )] = 1 << entryList[idx].ctx->clc.clientNum;
 					curCommand++;
 					entryList[idx].serverCommandSyncIdx = curCommand;
 					//printf( "idx:%d cmd:%d Command: %s\n", idx, commandNum, command );
@@ -614,7 +617,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		}
 		char bigConfigString[BIG_INFO_STRING];
 		for ( int commandNum = firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
-			char* command = ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+			char* command = ctx->serverCommands[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 			if ( !( ( command[0] == 'c' && command[1] == 's' ) || ( command[0] == 'b' && command[1] == 'c' && command[2] == 's' ) ) ) {
 				continue;
 			}

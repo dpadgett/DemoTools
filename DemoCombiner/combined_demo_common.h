@@ -43,7 +43,7 @@ typedef struct combinedDemoContext_s {
 	demoContext_t ctx;
 	char serverCommandBuffer[1024][MAX_STRING_CHARS];
 	int serverCommandBufferCount;
-	int serverCommandBitmask[MAX_RELIABLE_COMMANDS];
+	int serverCommandBitmask[MAX_BUFFERED_SERVER_COMMANDS];
 	int32_t ent_owners[2][MAX_GENTITIES];
 	int ent_owner_idx = 0;
 	// for current snapshot

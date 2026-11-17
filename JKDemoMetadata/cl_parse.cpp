@@ -49,12 +49,20 @@ void CL_ParseCommandString( msg_t *msg, qboolean firstServerCommandInMessage ) {
 
 	// see if we have already executed stored it off
 	if ( ctx->clc.serverCommandSequence >= seq ) {
+		if ( ctx->serverCommandSeq[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ] != seq + 1 ) {
+			index = seq & (MAX_RELIABLE_COMMANDS-1);
+			Q_strncpyz( ctx->clc.serverCommands[ index ], s, sizeof( ctx->clc.serverCommands[ index ] ) );
+			Q_strncpyz( ctx->serverCommands[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ], s, sizeof( ctx->serverCommands[ 0 ] ) );
+			ctx->serverCommandSeq[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ] = seq + 1;
+		}
 		return;
 	}
 	ctx->clc.serverCommandSequence = seq;
 
 	index = seq & (MAX_RELIABLE_COMMANDS-1);
 	Q_strncpyz( ctx->clc.serverCommands[ index ], s, sizeof( ctx->clc.serverCommands[ index ] ) );
+	Q_strncpyz( ctx->serverCommands[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ], s, sizeof( ctx->serverCommands[ 0 ] ) );
+	ctx->serverCommandSeq[ seq & (MAX_BUFFERED_SERVER_COMMANDS-1) ] = seq + 1;
 }
 
 void CL_ParseRMG ( msg_t* msg )

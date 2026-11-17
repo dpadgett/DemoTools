@@ -581,8 +581,9 @@ void CL_ParseMergedCommandString( msg_t* msg, qboolean firstServerCommandInMessa
 	}
 	ctx->clc.serverCommandSequence = seq;
 
-	index = seq & ( MAX_RELIABLE_COMMANDS - 1 );
-	Q_strncpyz( ctx->clc.serverCommands[index], s, sizeof( ctx->clc.serverCommands[index] ) );
+	Q_strncpyz( ctx->clc.serverCommands[seq & ( MAX_RELIABLE_COMMANDS - 1 )], s, sizeof( ctx->clc.serverCommands[0] ) );
+	index = seq & ( MAX_BUFFERED_SERVER_COMMANDS - 1 );
+	Q_strncpyz( ctx->serverCommands[index], s, sizeof( ctx->serverCommands[index] ) );
 	cctx->serverCommandBitmask[index] = bitmask;
 }
 
@@ -915,19 +916,19 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		if ( lastSnapValid && ( ( lastSnapFlags ^ ctx->cl.snap.snapFlags ) & SNAPFLAG_SERVERCOUNT ) != 0 ) {
 			demo->currentMap++;
 		}
-		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_RELIABLE_COMMANDS ) {
-			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10; // fudge factor
+		if ( ctx->clc.serverCommandSequence - ctx->clc.lastExecutedServerCommand > MAX_BUFFERED_SERVER_COMMANDS ) {
+			ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence - MAX_BUFFERED_SERVER_COMMANDS + 10; // fudge factor
 		}
 		demo->firstServerCommand = ctx->clc.lastExecutedServerCommand;
 		int firstNonEmptyCommand = 0;
 		// process any new server commands
 		for ( ; ctx->clc.lastExecutedServerCommand <= ctx->clc.serverCommandSequence; ctx->clc.lastExecutedServerCommand++ ) {
-			char *command = ctx->clc.serverCommands[ ctx->clc.lastExecutedServerCommand & ( MAX_RELIABLE_COMMANDS - 1 ) ];
+			char *command = ctx->serverCommands[ ctx->clc.lastExecutedServerCommand & ( MAX_BUFFERED_SERVER_COMMANDS - 1 ) ];
 			if ( command[0] && firstNonEmptyCommand == 0 ) {
 				firstNonEmptyCommand = ctx->clc.lastExecutedServerCommand;
 			}
 		}
-		if ( demo->firstServerCommand == ctx->clc.serverCommandSequence - MAX_RELIABLE_COMMANDS + 10 && firstNonEmptyCommand > 0 ) {
+		if ( demo->firstServerCommand == ctx->clc.serverCommandSequence - MAX_BUFFERED_SERVER_COMMANDS + 10 && firstNonEmptyCommand > 0 ) {
 			demo->firstServerCommand = firstNonEmptyCommand;
 		}
 		return msg;
@@ -1269,8 +1270,13 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		if ( !states[d].seqInitialized ) {
 			entry.ctx->cl.gameState = mergedCtx.ctx.cl.gameState;
 			if ( demo->lastGamestate ) {
-				entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = demo->lastGamestate->serverReliableAcknowledge + 1;  // TODO: right offset,  entry.firstServerCommand;
-				entry.ctx->serverReliableAcknowledge = demo->lastGamestate->serverReliableAcknowledge;
+				int sraIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 0 : 1;
+				int initSra = demo->lastGamestate->serverReliableAcknowledge;
+				if ( ( cctx->matchedClients & ( 1 << clientnum ) ) && cctx->serverReliableAcknowledge[sraIdx][clientnum] < initSra ) {
+					initSra = cctx->serverReliableAcknowledge[sraIdx][clientnum];
+				}
+				entry.ctx->clc.lastExecutedServerCommand = entry.ctx->clc.serverCommandSequence = initSra + 1;  // TODO: right offset,  entry.firstServerCommand;
+				entry.ctx->serverReliableAcknowledge = initSra;
 				entry.ctx->clc.serverCommandSequence--;
 				entry.ctx->clc.serverMessageSequence = demo->lastGamestate->serverMessageSequence;
 			}
@@ -1285,14 +1291,14 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		// figure out commands
 		int firstServerCommand = entry.ctx->clc.serverCommandSequence + 1;
 		for ( int commandNum = entry.firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
-			char *command = ctx->clc.serverCommands[ commandNum & ( MAX_RELIABLE_COMMANDS - 1 ) ];
-			int bitmask = cctx->serverCommandBitmask[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+			char *command = ctx->serverCommands[ commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 ) ];
+			int bitmask = cctx->serverCommandBitmask[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 			if ( !( bitmask & ( 1 << clientnum ) ) ) {
 				continue;
 			}
 			entry.ctx->clc.serverCommandSequence++;
 			entry.ctx->clc.lastExecutedServerCommand++;
-			Q_strncpyz( entry.ctx->clc.serverCommands[entry.ctx->clc.serverCommandSequence & ( MAX_RELIABLE_COMMANDS - 1 )], command, MAX_STRING_CHARS );
+			Q_strncpyz( entry.ctx->serverCommands[entry.ctx->clc.serverCommandSequence & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )], command, MAX_STRING_CHARS );
 		}
 
 		char bigConfigString[BIG_INFO_STRING];
@@ -1306,7 +1312,8 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			ctx = entry.ctx;
 			// update any configstrings up to the gamestate's command sequence number
 			for ( int commandNum = firstServerCommand; commandNum <= gamestateMetadata->serverCommandSequence; commandNum++, firstServerCommand++ ) {
-				char* command = entry.ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+				char* command = entry.ctx->serverCommands[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
+				Q_strncpyz( entry.ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )], command, MAX_STRING_CHARS );
 				if ( !( ( command[0] == 'c' && command[1] == 's' ) || ( command[0] == 'b' && command[1] == 'c' && command[2] == 's' ) ) ) {
 					continue;
 				}
@@ -1365,7 +1372,8 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 
 		ctx = entry.ctx;
 		for ( int commandNum = firstServerCommand; commandNum <= entry.ctx->clc.serverCommandSequence; commandNum++ ) {
-			char* command = entry.ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+			char* command = entry.ctx->serverCommands[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
+			Q_strncpyz( entry.ctx->clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )], command, MAX_STRING_CHARS );
 			if ( !( ( command[0] == 'c' && command[1] == 's' ) || ( command[0] == 'b' && command[1] == 'c' && command[2] == 's' ) ) ) {
 				continue;
 			}
@@ -1570,7 +1578,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			char bigConfigString[BIG_INFO_STRING];
 			ctx = &mergedCtx.ctx;
 			for ( int commandNum = entry.firstServerCommand; commandNum <= mergedCtx.ctx.clc.serverCommandSequence; commandNum++ ) {
-				char* command = mergedCtx.ctx.clc.serverCommands[commandNum & ( MAX_RELIABLE_COMMANDS - 1 )];
+				char* command = mergedCtx.ctx.serverCommands[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 				if ( !( ( command[0] == 'c' && command[1] == 's' ) || ( command[0] == 'b' && command[1] == 'c' && command[2] == 's' ) ) ) {
 					continue;
 				}
