@@ -63,6 +63,7 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 	int			newnum;
 	entityState_t* oldstate;
 	entityState_t* oldfloatForced;
+	int			oldNoDelta = 0;
 	int			oldindex, oldnum;
 	int* owners = cctx->ent_owners[cctx->ent_owner_idx ^ 1];
 	int* prev_owners = cctx->ent_owners[cctx->ent_owner_idx];
@@ -84,10 +85,10 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			oldnum = 99999;
 		}
 		else {
-			oldstate = ctx->parseEntityPtr[
-				( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
-			oldfloatForced = &ctx->parseEntitiesFloatForced[
-				( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			int oldSlotIdx = ( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 );
+			oldstate = ctx->parseEntityPtr[oldSlotIdx];
+			oldfloatForced = &ctx->parseEntitiesFloatForced[oldSlotIdx];
+			oldNoDelta = cctx->parseEntitiesNoDeltaForced[oldSlotIdx];
 			oldnum = oldstate->number;
 		}
 	}
@@ -116,10 +117,16 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 				Com_Printf( "%3i:  unchanged: %i\n", msg->readcount, oldnum );
 			}
 			CL_DeltaEntity( msg, newframe, oldnum, oldstate, qtrue );
-			if ( oldfloatForced->number ) {
+			{
 				int penum = ctx->cl.parseEntitiesNum - 1;
-				entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
-				*newfloatForced = *oldfloatForced;
+				int dstSlot = penum & ( MAX_PARSE_ENTITIES - 1 );
+				if ( oldfloatForced->number ) {
+					entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[dstSlot];
+					*newfloatForced = *oldfloatForced;
+					cctx->parseEntitiesNoDeltaForced[dstSlot] = oldNoDelta;
+				} else {
+					cctx->parseEntitiesNoDeltaForced[dstSlot] = 0;
+				}
 			}
 			owners[oldnum] = prev_owners[oldnum];
 
@@ -129,10 +136,10 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 				oldnum = 99999;
 			}
 			else {
-				oldstate = ctx->parseEntityPtr[
-					( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
-				oldfloatForced = &ctx->parseEntitiesFloatForced[
-					( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+				int oldSlotIdx = ( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 );
+				oldstate = ctx->parseEntityPtr[oldSlotIdx];
+				oldfloatForced = &ctx->parseEntitiesFloatForced[oldSlotIdx];
+				oldNoDelta = cctx->parseEntitiesNoDeltaForced[oldSlotIdx];
 				oldnum = oldstate->number;
 			}
 		}
@@ -148,8 +155,9 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 				owners[newnum] = 0;
 			} else {
 				int penum = ctx->cl.parseEntitiesNum - 1;
-				entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
-				MSG_ReadDeltaEntityWithFloats( msg, oldfloatForced, newfloatForced, NULL, 0, qtrue );
+				int dstSlot = penum & ( MAX_PARSE_ENTITIES - 1 );
+				entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[dstSlot];
+				MSG_ReadDeltaFloatForced( msg, oldfloatForced, newfloatForced, oldNoDelta, &cctx->parseEntitiesNoDeltaForced[dstSlot] );
 				// read owner delta
 				int owner_delta = 0;
 				qboolean unchanged = MSG_ReadBits( msg, 1 ) == 0 ? qtrue : qfalse;
@@ -168,10 +176,10 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 				oldnum = 99999;
 			}
 			else {
-				oldstate = ctx->parseEntityPtr[
-					( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
-				oldfloatForced = &ctx->parseEntitiesFloatForced[
-					( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+				int oldSlotIdx = ( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 );
+				oldstate = ctx->parseEntityPtr[oldSlotIdx];
+				oldfloatForced = &ctx->parseEntitiesFloatForced[oldSlotIdx];
+				oldNoDelta = cctx->parseEntitiesNoDeltaForced[oldSlotIdx];
 				oldnum = oldstate->number;
 			}
 			continue;
@@ -190,8 +198,9 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 				continue;
 			}
 			int penum = ctx->cl.parseEntitiesNum - 1;
-			entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
-			MSG_ReadDeltaEntityWithFloats( msg, &zeroEnt, newfloatForced, NULL, 0, qtrue );
+			int dstSlot = penum & ( MAX_PARSE_ENTITIES - 1 );
+			entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[dstSlot];
+			MSG_ReadDeltaFloatForced( msg, &zeroEnt, newfloatForced, 0, &cctx->parseEntitiesNoDeltaForced[dstSlot] );
 			// read owner delta
 			int owner_delta = 0;
 			qboolean unchanged = MSG_ReadBits( msg, 1 ) == 0 ? qtrue : qfalse;
@@ -214,10 +223,16 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			Com_Printf( "%3i:  unchanged: %i\n", msg->readcount, oldnum );
 		}
 		CL_DeltaEntity( msg, newframe, oldnum, oldstate, qtrue );
-		if ( oldfloatForced->number ) {
+		{
 			int penum = ctx->cl.parseEntitiesNum - 1;
-			entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[penum & ( MAX_PARSE_ENTITIES - 1 )];
-			*newfloatForced = *oldfloatForced;
+			int dstSlot = penum & ( MAX_PARSE_ENTITIES - 1 );
+			if ( oldfloatForced->number ) {
+				entityState_t* newfloatForced = &ctx->parseEntitiesFloatForced[dstSlot];
+				*newfloatForced = *oldfloatForced;
+				cctx->parseEntitiesNoDeltaForced[dstSlot] = oldNoDelta;
+			} else {
+				cctx->parseEntitiesNoDeltaForced[dstSlot] = 0;
+			}
 		}
 		owners[oldnum] = prev_owners[oldnum];
 
@@ -227,10 +242,10 @@ void CL_ParseMergedPacketEntities( msg_t* msg, clSnapshot_t* oldframe, clSnapsho
 			oldnum = 99999;
 		}
 		else {
-			oldstate = ctx->parseEntityPtr[
-				( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
-			oldfloatForced = &ctx->parseEntitiesFloatForced[
-				( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			int oldSlotIdx = ( oldframe->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 );
+			oldstate = ctx->parseEntityPtr[oldSlotIdx];
+			oldfloatForced = &ctx->parseEntitiesFloatForced[oldSlotIdx];
+			oldNoDelta = cctx->parseEntitiesNoDeltaForced[oldSlotIdx];
 			oldnum = oldstate->number;
 		}
 	}
@@ -757,6 +772,9 @@ void CL_ParseMergedGamestate( msg_t* msg ) {
 			Com_Memset( &nullstate, 0, sizeof( nullstate ) );
 			es = &ctx->cl.entityBaselines[newnum];
 			MSG_ReadDeltaEntityWithFloats( msg, &nullstate, es, &ctx->entityBaselinesFloatForced[newnum], newnum, qfalse );
+			if ( ctx->entityBaselinesFloatForced[newnum].number == 2 ) {
+				ctx->entityBaselinesFloatForced[newnum].number = 0;
+			}
 		}
 		else {
 			Com_Error( ERR_DROP, "CL_ParseGamestate: bad command byte" );
@@ -1580,12 +1598,20 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 					entry.ctx->parseEntityVersion[dstIdx] = ctx->parseEntityVersion[parseIdx];
 				}
 				entityState_t *srcFloatForced = &ctx->parseEntitiesFloatForced[parseIdx];
+				int srcNoDelta = cctx->parseEntitiesNoDeltaForced[parseIdx];
 				if ( srcFloatForced->number & clientBit ) {
-					floatForcedState->number = 1;
-					for ( int i = 0; i < (int) ARRAY_LEN( entityStateFields ); i++ ) {
-						size_t offset = entityStateFields[i].offset;
-						int val = *(int*) ( (byte*) srcFloatForced + offset );
-						*(int*) ( (byte*) floatForcedState + offset ) = ( val & clientBit ) ? 1 : 0;
+					if ( srcNoDelta & clientBit ) {
+						if ( floatForcedState->number ) {
+							Com_Memset( floatForcedState, 0, sizeof( *floatForcedState ) );
+						}
+						floatForcedState->number = 2;
+					} else {
+						floatForcedState->number = 1;
+						for ( int i = 0; i < (int) ARRAY_LEN( entityStateFields ); i++ ) {
+							size_t offset = entityStateFields[i].offset;
+							int val = *(int*) ( (byte*) srcFloatForced + offset );
+							*(int*) ( (byte*) floatForcedState + offset ) = ( val & clientBit ) ? 1 : 0;
+						}
 					}
 				} else if ( floatForcedState->number ) {
 					Com_Memset( floatForcedState, 0, sizeof( *floatForcedState ) );

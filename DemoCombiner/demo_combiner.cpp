@@ -904,6 +904,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			entityState_t				*snapEnts[MAX_GENTITIES];
 			uint32_t					snapEntVer[MAX_GENTITIES];
 			static entityState_t		snapFloatForced[MAX_GENTITIES];
+			static int					snapNoDeltaForced[MAX_GENTITIES];
 
 			int32_t *owners = mergedCtx.ent_owners[mergedCtx.ent_owner_idx];
 			mergedCtx.ent_owner_idx ^= 1;
@@ -939,16 +940,21 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 						if ( snapFloatForced[entNum].number ) {
 							Com_Memset( &snapFloatForced[entNum], 0, sizeof( entityState_t ) );
 						}
+						snapNoDeltaForced[entNum] = 0;
 					} else if ( !( owners[entNum] & clientBit ) && memcmp( ent, snapEnts[entNum], sizeof( entityState_t ) ) != 0 ) {
 						AddEntityOverride( &mergedCtx, clientNum, entNum, snapEnts[entNum], ent );
 					}
 					owners[entNum] |= clientBit;
 					if ( floatForced->number ) {
 						entityState_t *toFloatForced = &snapFloatForced[entNum];
-						for ( int i = 0; i < (int) ARRAY_LEN( entityStateFields ); i++ ) {
-							size_t offset = entityStateFields[i].offset;
-							if ( *(int*)( (byte*)floatForced + offset ) == 1 ) {
-								*(int*)( (byte*)toFloatForced + offset ) |= clientBit;
+						if ( floatForced->number == 2 ) {
+							snapNoDeltaForced[entNum] |= clientBit;
+						} else {
+							for ( int i = 0; i < (int) ARRAY_LEN( entityStateFields ); i++ ) {
+								size_t offset = entityStateFields[i].offset;
+								if ( *(int*)( (byte*)floatForced + offset ) == 1 ) {
+									*(int*)( (byte*)toFloatForced + offset ) |= clientBit;
+								}
 							}
 						}
 						toFloatForced->number |= clientBit;
@@ -976,8 +982,12 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					ctx->parseEntityVersion[dstIdx] = snapEntVer[entIdx];
 					if ( snapFloatForced[entIdx].number ) {
 						*floatForced = snapFloatForced[entIdx];
-					} else if ( floatForced->number ) {
-						Com_Memset( floatForced, 0, sizeof( *floatForced ) );
+						cctx->parseEntitiesNoDeltaForced[dstIdx] = snapNoDeltaForced[entIdx];
+					} else {
+						if ( floatForced->number ) {
+							Com_Memset( floatForced, 0, sizeof( *floatForced ) );
+						}
+						cctx->parseEntitiesNoDeltaForced[dstIdx] = 0;
 					}
 					if ( ctx->cl.parseEntitiesNum >= 0x7FFFFFFE ) {
 						Com_Error( ERR_FATAL, "ctx->cl.parseEntitiesNum wrapped" );

@@ -291,6 +291,7 @@ entityState_t zeroEnt = {};
 static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* owners, int* prev_owners, msg_t* msg ) {
 	entityState_t* oldent, * newent;
 	entityState_t* oldfloatForced, * newfloatForced;
+	int		oldNoDelta = 0, newNoDelta = 0;
 	int		oldindex, newindex;
 	int		oldnum, newnum;
 	int		from_num_entities;
@@ -317,8 +318,10 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 			newnum = 9999;
 		}
 		else {
-			newent = ctx->parseEntityPtr[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
-			newfloatForced = &cctx->parseEntitiesFloatForced[( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			int newSlotIdx = ( to->parseEntitiesNum + newindex ) & ( MAX_PARSE_ENTITIES - 1 );
+			newent = ctx->parseEntityPtr[newSlotIdx];
+			newfloatForced = &cctx->parseEntitiesFloatForced[newSlotIdx];
+			newNoDelta = cctx->parseEntitiesNoDeltaForced[newSlotIdx];
 			newnum = newent->number;
 		}
 
@@ -326,8 +329,10 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 			oldnum = 9999;
 		}
 		else {
-			oldent = ctx->parseEntityPtr[( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
-			oldfloatForced = &cctx->parseEntitiesFloatForced[( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 )];
+			int oldSlotIdx = ( from->parseEntitiesNum + oldindex ) & ( MAX_PARSE_ENTITIES - 1 );
+			oldent = ctx->parseEntityPtr[oldSlotIdx];
+			oldfloatForced = &cctx->parseEntitiesFloatForced[oldSlotIdx];
+			oldNoDelta = cctx->parseEntitiesNoDeltaForced[oldSlotIdx];
 			oldnum = oldent->number;
 		}
 
@@ -349,13 +354,13 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 			// because the force parm is qfalse, this will not result
 			// in any bytes being emited if the entity has not changed at all
 			bool floatForcedChanged = ( oldfloatForced->number || newfloatForced->number ) &&
-				memcmp( (const byte*)oldfloatForced + 4, (const byte*)newfloatForced + 4, sizeof( *newfloatForced ) - 4 );
+				( oldNoDelta != newNoDelta || memcmp( (const byte*)oldfloatForced + 4, (const byte*)newfloatForced + 4, sizeof( *newfloatForced ) - 4 ) != 0 );
 			MSG_WriteDeltaEntity( msg, oldent, newent, owner_delta != 0 || floatForcedChanged ? qtrue : qfalse );
 			if ( tmp.cursize == msg->cursize && tmp.bit == msg->bit ) {
 				// nothing was written, don't need to write ownership info since it didn't change
 			} else {
 				// write float forced
-				MSG_WriteDeltaEntityOrFloatForced( msg, oldfloatForced, newfloatForced, qtrue, qtrue );
+				MSG_WriteDeltaFloatForced( msg, oldfloatForced, newfloatForced, oldNoDelta, newNoDelta );
 				// write owner bitmask
 				if ( cl_shownet->integer >= 1 ) {
 					Com_Printf( "%d %d ", entnum, owner_delta );
@@ -376,7 +381,7 @@ static void SV_EmitPacketEntities( clSnapshot_t* from, clSnapshot_t* to, int* ow
 			// this is a new entity, send it from the baseline
 			MSG_WriteDeltaEntity( msg, &ctx->cl.entityBaselines[newnum], newent, qtrue );
 			// write float forced
-			MSG_WriteDeltaEntityOrFloatForced( msg, &zeroEnt, newfloatForced, qtrue, qtrue );
+			MSG_WriteDeltaFloatForced( msg, &zeroEnt, newfloatForced, 0, newNoDelta );
 			// write owner bitmask
 			if ( cl_shownet->integer >= 1 ) {
 				Com_Printf( "%d %d ", entnum, owner_delta );

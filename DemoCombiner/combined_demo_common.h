@@ -81,6 +81,7 @@ typedef struct combinedDemoContext_s {
 	int serverMessageSequence[MAX_CLIENTS];
 	byte areamask[MAX_CLIENTS][MAX_MAP_AREA_BYTES];
 	entityState_t parseEntitiesFloatForced[MAX_PARSE_ENTITIES];
+	int parseEntitiesNoDeltaForced[MAX_PARSE_ENTITIES];
 	int snapFlags[MAX_CLIENTS];
 	int numDemos;
 	int numHandledDemos;

@@ -554,6 +554,52 @@ void MSG_WriteDeltaEntityOrFloatForced( msg_t* msg, struct entityState_s* from, 
 	MSG_WriteDeltaEntityWithFloatsForcedOrFloatForced( msg, from, to, NULL, force, isFloatForced );
 }
 
+void MSG_WriteDeltaFloatForced( msg_t* msg, struct entityState_s* from, struct entityState_s* to, int oldNoDelta, int newNoDelta ) {
+	int numFields = (int) ARRAY_LEN( entityStateFields );
+	int lc = 0;
+	if ( from->number != 0 || to->number != 0 ) {
+		for ( int i = numFields - 1; i >= 0; i-- ) {
+			size_t offset = entityStateFields[i].offset;
+			if ( *(const int*)( (const byte*)from + offset ) != *(const int*)( (const byte*)to + offset ) ) {
+				lc = i + 1;
+				break;
+			}
+		}
+	}
+
+	int noDeltaXor = oldNoDelta ^ newNoDelta;
+	if ( noDeltaXor != 0 ) {
+		MSG_WriteBits( msg, 1, 1 );
+		MSG_WriteLong( msg, noDeltaXor );
+	} else {
+		MSG_WriteBits( msg, 0, 1 );
+	}
+
+	if ( lc == 0 ) {
+		MSG_WriteBits( msg, 0, 1 );
+		return;
+	}
+
+	MSG_WriteBits( msg, 1, 1 );
+	MSG_WriteByte( msg, lc );
+	for ( int i = 0; i < lc; i++ ) {
+		size_t offset = entityStateFields[i].offset;
+		int fromVal = *(const int*)( (const byte*)from + offset );
+		int toVal = *(const int*)( (const byte*)to + offset );
+		if ( fromVal == toVal ) {
+			MSG_WriteBits( msg, 0, 1 );
+			continue;
+		}
+		MSG_WriteBits( msg, 1, 1 );
+		if ( toVal == 0 ) {
+			MSG_WriteBits( msg, 0, 1 );
+		} else {
+			MSG_WriteBits( msg, 1, 1 );
+			MSG_WriteBits( msg, toVal, 32 );
+		}
+	}
+}
+
 /*
 ==================
 MSG_ReadDeltaEntity
@@ -594,8 +640,11 @@ void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState
 		} else {
 			*to = *from;
 			to->number = number;
-			if ( floatForced && floatForced->number ) {
-				Com_Memset( floatForced, 0, sizeof( *floatForced ) );
+			if ( floatForced ) {
+				if ( floatForced->number ) {
+					Com_Memset( floatForced, 0, sizeof( *floatForced ) );
+				}
+				floatForced->number = 2;
 			}
 		}
 		return;
@@ -687,6 +736,60 @@ void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState
 		}
 		to->number = mask;
 	}
+}
+
+void MSG_ReadDeltaFloatForced( msg_t* msg, entityState_t* from, entityState_t* to, int oldNoDelta, int* newNoDelta ) {
+	int noDelta = oldNoDelta;
+	if ( MSG_ReadBits( msg, 1 ) == 1 ) {
+		noDelta ^= MSG_ReadLong( msg );
+	}
+	*newNoDelta = noDelta;
+
+	int numFields = (int) ARRAY_LEN( entityStateFields );
+	if ( MSG_ReadBits( msg, 1 ) == 0 ) {
+		if ( from->number || to->number ) {
+			*to = *from;
+		}
+		int mask = noDelta;
+		if ( from->number ) {
+			for ( int i = 0; i < numFields; i++ ) {
+				mask |= *(const int*)( (const byte*)to + entityStateFields[i].offset );
+			}
+		}
+		to->number = mask;
+		return;
+	}
+
+	int lc = MSG_ReadByte( msg );
+	if ( lc > numFields || lc < 0 ) {
+		Com_Error( ERR_DROP, "invalid floatForced field count (got: %i, expecting: %i)", lc, numFields );
+	}
+
+	entityState_t oldCopy;
+	if ( from == to ) {
+		oldCopy = *from;
+		from = &oldCopy;
+	} else {
+		*to = *from;
+	}
+
+	for ( int i = 0; i < lc; i++ ) {
+		if ( !MSG_ReadBits( msg, 1 ) ) {
+			continue;
+		}
+		int* toF = (int*)( (byte*)to + entityStateFields[i].offset );
+		if ( MSG_ReadBits( msg, 1 ) == 0 ) {
+			*toF = 0;
+		} else {
+			*toF = MSG_ReadBits( msg, 32 );
+		}
+	}
+
+	int mask = noDelta;
+	for ( int i = 0; i < numFields; i++ ) {
+		mask |= *(const int*)( (const byte*)to + entityStateFields[i].offset );
+	}
+	to->number = mask;
 }
 
 //MAKE SURE THIS MATCHES THE ENUM IN BG_PUBLIC.H!!!

@@ -144,6 +144,9 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 			Com_Memset (&nullstate, 0, sizeof(nullstate));
 			es = &ctx->cl.entityBaselines[ newnum ];
 			MSG_ReadDeltaEntityWithFloats( msg, &nullstate, es, &ctx->entityBaselinesFloatForced[ newnum ], newnum, qfalse );
+			if ( ctx->entityBaselinesFloatForced[ newnum ].number == 2 ) {
+				ctx->entityBaselinesFloatForced[ newnum ].number = 0;
+			}
 		} else {
 			Com_Error( ERR_DROP, "CL_ParseGamestate: bad command byte" );
 		}
@@ -316,6 +319,11 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 			CL_DeltaEntity( msg, newframe, newnum, &ctx->cl.entityBaselines[newnum], qfalse );
 			if ( newframe->numEntities == prevEntities && ctx->numRemovedEntities < MAX_GENTITIES ) {
 				ctx->removedEntities[ctx->numRemovedEntities++] = (uint16_t)newnum;
+			} else if ( newframe->numEntities > prevEntities ) {
+				int lastSlot = ( ctx->cl.parseEntitiesNum - 1 ) & ( MAX_PARSE_ENTITIES - 1 );
+				if ( ctx->parseEntitiesFloatForced[lastSlot].number == 2 ) {
+					ctx->parseEntitiesFloatForced[lastSlot].number = 0;
+				}
 			}
 			continue;
 		}

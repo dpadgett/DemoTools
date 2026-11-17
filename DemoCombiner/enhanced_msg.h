@@ -10,9 +10,11 @@ void MSG_WriteDeltaEntityWithFloatsForced( msg_t* msg, struct entityState_s* fro
 	qboolean force );
 void MSG_WriteDeltaEntityOrFloatForced( msg_t* msg, struct entityState_s* from, struct entityState_s* to,
 	qboolean force, qboolean isFloatForced );
+void MSG_WriteDeltaFloatForced( msg_t* msg, struct entityState_s* from, struct entityState_s* to, int oldNoDelta, int newNoDelta );
 
 void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState_t* to, entityState_t* floatForced,
 	int number, qboolean isFloatForced );
+void MSG_ReadDeltaFloatForced( msg_t* msg, entityState_t* from, entityState_t* to, int oldNoDelta, int* newNoDelta );
 void MSG_WriteDeltaPlayerstateWithFieldsForcedOrWriteForcedFields( msg_t* msg, struct playerState_s* from, struct playerState_s* to, struct playerState_s* forcedFields, qboolean isVehiclePS, qboolean isForcedFields );
 void MSG_WriteDeltaPlayerstateWithFieldsForced( msg_t* msg, struct playerState_s* from, struct playerState_s* to, struct playerState_s* forcedFields, qboolean isVehiclePS );
 void MSG_WriteDeltaPlayerstateForcedFields( msg_t* msg, struct playerState_s* from, struct playerState_s* to, qboolean isVehiclePS );
