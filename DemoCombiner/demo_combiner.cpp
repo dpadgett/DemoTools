@@ -631,43 +631,45 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 				}
 				mergedCtx.matches[mergedCtx.numMatches++] = idx;
 				int clientNum = entryList[idx].ctx->clc.clientNum;
-				mergedCtx.matchedClients |= 1 << clientNum;
-				int deltaNum = entryList[idx].ctx->cl.snap.deltaNum;
-				int messageNum = entryList[idx].ctx->cl.snap.messageNum;
-				mergedCtx.deltasnap[clientNum] = deltaNum == -1 ? 0 : messageNum - deltaNum;
-				if ( deltaNum != -1 && entryList[idx].ctx->cl.snapshots[deltaNum & PACKET_MASK].serverCommandNum != entryList[idx].ctx->serverReliableAcknowledge ) {
-					mergedCtx.deltasnap[clientNum] |= 0x80;
-				}
-				int psIdx = mergedCtx.curPlayerStateIdxMask & ( 1 << clientNum ) ? 1 : 0;
-				mergedCtx.playerStates[psIdx][clientNum] = entryList[idx].ctx->cl.snap.ps;
-				const playerState_t &srcPsff = entryList[idx].ctx->playerStateForcedFields[entryList[idx].ctx->cl.snap.messageNum & PACKET_MASK];
-				playerState_t &dstPsff = mergedCtx.playerStatesForcedFields[psIdx][clientNum];
-				if ( srcPsff.ping ) {
-					dstPsff = srcPsff;
-				} else if ( dstPsff.ping ) {
-					Com_Memset( &dstPsff, 0, sizeof( dstPsff ) );
-				}
-				if ( mergedCtx.playerStates[psIdx][clientNum].m_iVehicleNum ) {
-					mergedCtx.vehPlayerStates[psIdx][clientNum] = entryList[idx].ctx->cl.snap.vps;
-					const playerState_t &srcVpsff = entryList[idx].ctx->vehPlayerStateForcedFields[entryList[idx].ctx->cl.snap.messageNum & PACKET_MASK];
-					playerState_t &dstVpsff = mergedCtx.vehPlayerStatesForcedFields[psIdx][clientNum];
-					if ( srcVpsff.ping ) {
-						dstVpsff = srcVpsff;
-					} else if ( dstVpsff.ping ) {
-						Com_Memset( &dstVpsff, 0, sizeof( dstVpsff ) );
+				if ( !( mergedCtx.matchedClients & ( 1 << clientNum ) ) ) {
+					mergedCtx.matchedClients |= 1 << clientNum;
+					int deltaNum = entryList[idx].ctx->cl.snap.deltaNum;
+					int messageNum = entryList[idx].ctx->cl.snap.messageNum;
+					mergedCtx.deltasnap[clientNum] = deltaNum == -1 ? 0 : messageNum - deltaNum;
+					if ( deltaNum != -1 && entryList[idx].ctx->cl.snapshots[deltaNum & PACKET_MASK].serverCommandNum != entryList[idx].ctx->serverReliableAcknowledge ) {
+						mergedCtx.deltasnap[clientNum] |= 0x80;
 					}
+					int psIdx = mergedCtx.curPlayerStateIdxMask & ( 1 << clientNum ) ? 1 : 0;
+					mergedCtx.playerStates[psIdx][clientNum] = entryList[idx].ctx->cl.snap.ps;
+					const playerState_t &srcPsff = entryList[idx].ctx->playerStateForcedFields[entryList[idx].ctx->cl.snap.messageNum & PACKET_MASK];
+					playerState_t &dstPsff = mergedCtx.playerStatesForcedFields[psIdx][clientNum];
+					if ( srcPsff.ping ) {
+						dstPsff = srcPsff;
+					} else if ( dstPsff.ping ) {
+						Com_Memset( &dstPsff, 0, sizeof( dstPsff ) );
+					}
+					if ( mergedCtx.playerStates[psIdx][clientNum].m_iVehicleNum ) {
+						mergedCtx.vehPlayerStates[psIdx][clientNum] = entryList[idx].ctx->cl.snap.vps;
+						const playerState_t &srcVpsff = entryList[idx].ctx->vehPlayerStateForcedFields[entryList[idx].ctx->cl.snap.messageNum & PACKET_MASK];
+						playerState_t &dstVpsff = mergedCtx.vehPlayerStatesForcedFields[psIdx][clientNum];
+						if ( srcVpsff.ping ) {
+							dstVpsff = srcVpsff;
+						} else if ( dstVpsff.ping ) {
+							Com_Memset( &dstVpsff, 0, sizeof( dstVpsff ) );
+						}
+					}
+					int raIdx = mergedCtx.reliableAcknowledgeIdxMask & ( 1 << clientNum ) ? 1 : 0;
+					mergedCtx.serverReliableAcknowledge[raIdx][clientNum] = entryList[idx].ctx->serverReliableAcknowledge;
+					mergedCtx.reliableAcknowledge[raIdx][clientNum] = entryList[idx].ctx->clc.reliableAcknowledge;
+					mergedCtx.reliableAcknowledgeIdxMask ^= ( 1 << clientNum );
+					mergedCtx.playerStateValidMask |= mergedCtx.curPlayerStateIdxMask & ( 1 << clientNum );
+					mergedCtx.curPlayerStateIdxMask ^= ( 1 << clientNum );
+					mergedCtx.lastServerMessageSequence[clientNum] = mergedCtx.serverMessageSequence[clientNum];
+					mergedCtx.serverMessageSequence[clientNum] = entryList[idx].ctx->clc.serverMessageSequence;
+					Com_Memcpy( mergedCtx.areamask[clientNum], entryList[idx].ctx->cl.snap.areamask, entryList[idx].ctx->areabytes );
+					mergedCtx.ctx.areabytes = entryList[idx].ctx->areabytes;
+					mergedCtx.messageExtraByte[clientNum] = entryList[idx].ctx->messageExtraByte;
 				}
-				int raIdx = mergedCtx.reliableAcknowledgeIdxMask & ( 1 << clientNum ) ? 1 : 0;
-				mergedCtx.serverReliableAcknowledge[raIdx][clientNum] = entryList[idx].ctx->serverReliableAcknowledge;
-				mergedCtx.reliableAcknowledge[raIdx][clientNum] = entryList[idx].ctx->clc.reliableAcknowledge;
-				mergedCtx.reliableAcknowledgeIdxMask ^= ( 1 << clientNum );
-				mergedCtx.playerStateValidMask |= mergedCtx.curPlayerStateIdxMask & ( 1 << clientNum );
-				mergedCtx.curPlayerStateIdxMask ^= ( 1 << clientNum );
-				mergedCtx.lastServerMessageSequence[clientNum] = mergedCtx.serverMessageSequence[clientNum];
-				mergedCtx.serverMessageSequence[clientNum] = entryList[idx].ctx->clc.serverMessageSequence;
-				Com_Memcpy( mergedCtx.areamask[clientNum], entryList[idx].ctx->cl.snap.areamask, entryList[idx].ctx->areabytes );
-				mergedCtx.ctx.areabytes = entryList[idx].ctx->areabytes;
-				mergedCtx.messageExtraByte[clientNum] = entryList[idx].ctx->messageExtraByte;
 			}/* else if ( entryList[idx].ctx->cl.snap.serverTime > frameTime && !entryList[idx].eos ) {
 				// dropped frame, reuse last frame for .5s to smooth blips
 				if ( entryList[idx].ctx->cl.snap.serverTime <= frameTime + 500 ) {
