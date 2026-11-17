@@ -603,8 +603,25 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		Com_Memset( mergedCtx.deltasnap, 0, sizeof( mergedCtx.deltasnap ) );
 		//int numNonMatches = 0;
 		//int nonMatches[MAX_CLIENTS];
+		auto demoHasDisconnect = []( demoContext_t *dctx ) -> qboolean {
+			for ( int c = dctx->clc.lastExecutedServerCommand; c <= dctx->clc.serverCommandSequence; c++ ) {
+				if ( dctx->serverCommandSeq[c & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )] == c + 1 ) {
+					if ( !Q_strncmp( dctx->serverCommands[c & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )], "disconnect", 10 ) ) {
+						return qtrue;
+					}
+				}
+			}
+			return qfalse;
+		};
+		qboolean anyNonDisconnectAtFrame = qfalse;
 		for ( idx = 0; idx < cctx->numDemos; idx++ ) {
-			if ( entryList[idx].ctx->cl.snap.serverTime == frameTime && !entryList[idx].eos ) {
+			if ( entryList[idx].ctx->cl.snap.serverTime == frameTime && !entryList[idx].eos && !demoHasDisconnect( entryList[idx].ctx ) ) {
+				anyNonDisconnectAtFrame = qtrue;
+				break;
+			}
+		}
+		for ( idx = 0; idx < cctx->numDemos; idx++ ) {
+			if ( entryList[idx].ctx->cl.snap.serverTime == frameTime && !entryList[idx].eos && ( !anyNonDisconnectAtFrame || !demoHasDisconnect( entryList[idx].ctx ) ) ) {
 				for ( int g = 0; g < entryList[idx].numInitialGamestates; g++ ) {
 					gamestateMetadata_t *gs = AllocCombinedGamestate( cctx );
 					*gs = entryList[idx].initialGamestates[g];

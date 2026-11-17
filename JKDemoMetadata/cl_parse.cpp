@@ -386,6 +386,15 @@ void CL_ParseSnapshot( msg_t *msg ) {
 		newSnap.deltaNum = -1;
 	} else {
 		newSnap.deltaNum = newSnap.messageNum - deltaNum;
+		if ( newSnap.deltaNum > 1 && ctx->clc.netchan.unsentLength >= 1300 && ctx->cl.snap.valid &&
+			ctx->cl.snap.messageNum == newSnap.messageNum - 1 ) {
+			qboolean isDisconnectSnap = ( newSnap.serverCommandNum > ctx->cl.snap.serverCommandNum &&
+				!Q_strncmp( ctx->clc.serverCommands[newSnap.serverCommandNum & ( MAX_RELIABLE_COMMANDS - 1 )], "disconnect", 10 ) ) ? qtrue : qfalse;
+			if ( ( ctx->cl.snap.serverTime == newSnap.serverTime && newSnap.deltaNum == ctx->cl.snap.deltaNum + 1 ) ||
+				isDisconnectSnap ) {
+				newSnap.deltaNum--;
+			}
+		}
 	}
 	newSnap.snapFlags = MSG_ReadByte( msg );
 	SHOWNET( msg, va( "snapFlags %d", newSnap.snapFlags ) );
@@ -493,6 +502,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	CopyClSnapshot( &ctx->cl.snap, &newSnap );
 	// save the frame off in the backup array for later delta comparisons
 	CopyClSnapshot( &ctx->cl.snapshots[ctx->cl.snap.messageNum & PACKET_MASK], &ctx->cl.snap );
+	ctx->clc.netchan.unsentLength = msg->cursize;
 
 	if (cl_shownet->integer == 3) {
 		Com_Printf( "   snapshot:%i  delta:%i  ping:%i\n", ctx->cl.snap.messageNum,

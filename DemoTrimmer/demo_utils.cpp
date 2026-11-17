@@ -285,6 +285,7 @@ void CL_WriteDemoMessage ( msg_t *msg, int headerBytes, FILE *fp ) {
 
 	// skip the packet sequencing information
 	len = msg->cursize - headerBytes;
+	ctx->clc.netchan.unsentLength = len;
 	swlen = LittleLong(len);
 	fwrite (&swlen, 4, 1, fp);
 
@@ -337,6 +338,16 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 			// not yet set
 			lastframe = 0;
 			oldframe = NULL;
+		} else if ( lastframe > 1 && ctx->clc.netchan.unsentLength >= 1300 ) {
+			const clSnapshot_t &prevSnap = ctx->cl.snapshots[( ctx->cl.snap.messageNum - 1 ) & PACKET_MASK];
+			if ( prevSnap.valid && prevSnap.messageNum == ctx->cl.snap.messageNum - 1 ) {
+				qboolean isDisconnectSnap = ( ctx->cl.snap.serverCommandNum > prevSnap.serverCommandNum &&
+					!Q_strncmp( ctx->clc.serverCommands[ctx->cl.snap.serverCommandNum & ( MAX_RELIABLE_COMMANDS - 1 )], "disconnect", 10 ) ) ? qtrue : qfalse;
+				if ( ( prevSnap.serverTime == ctx->cl.snap.serverTime && prevSnap.deltaNum == ctx->cl.snap.deltaNum ) ||
+					isDisconnectSnap ) {
+					lastframe--;
+				}
+			}
 		}
 	} else {
 		lastframe = 0;
