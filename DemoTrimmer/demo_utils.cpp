@@ -160,6 +160,8 @@ void writeDemoHeaderWithServerCommands( FILE* fp, int reliableAcknowledge, int s
 		data = msg->data[msg->cursize - 1];
 		data = msg->data[msg->cursize - 2];
 		msg->data[msg->cursize - 1] = ctx->messageExtraByte;
+	} else {
+		msg->data[msg->cursize - 1] |= ctx->messageExtraByte;
 	}
 
 	// write it to the demo file
@@ -270,6 +272,8 @@ void CL_WriteDemoMessage ( msg_t *msg, int headerBytes, FILE *fp ) {
 		data = msg->data[msg->cursize - 1];
 		data = msg->data[msg->cursize - 2];
 		msg->data[msg->cursize - 1] = ctx->messageExtraByte;
+	} else {
+		msg->data[msg->cursize - 1] |= ctx->messageExtraByte;
 	}
 
 	// write the packet sequence

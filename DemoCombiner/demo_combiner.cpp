@@ -55,7 +55,7 @@ void FreeMsg( msg_t *msg ) {
 }
 
 static void ReadRemainingDemoTail( demoEntry_t *demo ) {
-	int chunkSize = 1024;
+	int chunkSize = 65536;
 	int readCount = 0;
 	for (
 		demo->metadata->tail = (byte*) realloc( demo->metadata->tail, demo->metadata->tailLen + chunkSize );
@@ -98,10 +98,15 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		qboolean lastSnapValid = ctx->cl.snap.valid;
 		try {
 			CL_ParseServerMessage( msg );
+			if ( ctx->hadDownload ) {
+				Com_Error( ERR_DROP, "CL_ParseDownload: download in demo message" );
+			}
 		} catch ( int ) {
 			// thrown code means it wasn't a fatal error, so we can still dump what we had
+			ctx->cl.newSnapshots = qfalse;
+			demo->metadata->lastGamestate = prevLastGamestate;
 			ReadRemainingDemoTail( demo );
-			return msg;
+			return nullptr;
 		}
 
 		if ( demo->metadata->lastGamestate == nullptr && prevServerCommandSequence == 0 && ctx->clc.serverCommandSequence > 0 ) {
@@ -831,6 +836,12 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		CopyClSnapshot( &ctx->cl.snap, &snap );
 		CopyClSnapshot( &ctx->cl.snapshots[snap.messageNum & PACKET_MASK], &snap );
 
+		for ( int tIdx = 0; tIdx < cctx->numDemos; tIdx++ ) {
+			if ( cctx->demos[tIdx].eos && !cctx->demos[tIdx].tailSent && cctx->demos[tIdx].tailLen > 65536 ) {
+				writeTailData( outFile );
+				break;
+			}
+		}
 		if ( framesSaved > 0 ) {
 			writeMergedDeltaSnapshot( firstServerCommand, outFile, qfalse, serverCommandOffset );
 			framesSaved++;

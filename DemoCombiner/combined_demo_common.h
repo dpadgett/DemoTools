@@ -37,6 +37,7 @@ typedef struct demoMetadata_s {
 	qboolean eos;
 	qboolean eosSent;
 	int tailLen;  // set if file ended with extra bytes
+	int tailOffset;
 	byte* tail;
 	qboolean tailSent;
 } demoMetadata_t;

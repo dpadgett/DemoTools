@@ -642,13 +642,18 @@ void CL_ParseDemoGamestateOverrides( msg_t* msg ) {
 void CL_ParseTailData( msg_t* msg ) {
 	int demoIdx = MSG_ReadByte( msg );
 	demoMetadata_t* demo = &cctx->demos[demoIdx];
-	demo->tailLen = MSG_ReadLong( msg );
-	if ( demo->tailLen <= 0 ) {
+	int chunkLen = MSG_ReadLong( msg );
+	if ( chunkLen <= 0 ) {
+		demo->tailLen = chunkLen;
 		return;
 	}
+	if ( demo->tailLen < 0 ) {
+		demo->tailLen = 0;
+	}
 
-	demo->tail = (byte*) calloc( demo->tailLen, 1 );
-	MSG_ReadData( msg, demo->tail, demo->tailLen );
+	demo->tail = (byte*) realloc( demo->tail, demo->tailLen + chunkLen );
+	MSG_ReadData( msg, demo->tail + demo->tailLen, chunkLen );
+	demo->tailLen += chunkLen;
 }
 
 /*
@@ -1170,8 +1175,11 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 				}
 				free( demo->tail );
 				demo->tail = NULL;
+				demo->tailLen = -1;
 			}
-			states[d].done = qtrue;
+			if ( demo->eos ) {
+				states[d].done = qtrue;
+			}
 			continue;
 		}
 		int clientnum = demo->clientnum;
@@ -1625,7 +1633,7 @@ advanceLoop:
 						}
 						free( demo->tail );
 						demo->tail = NULL;
-						// demo->tailLen = 0;
+						demo->tailLen = -1;
 					}
 					if ( msg == nullptr || demo->eos ) {
 						states[d].done = qtrue;

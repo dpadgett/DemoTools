@@ -243,6 +243,7 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 		}
 	}
 
+	int lastnum = -1;
 	while ( 1 ) {
 		// read the entity index number
 		newnum = MSG_ReadBits( msg, GENTITYNUM_BITS );
@@ -254,6 +255,11 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 		if ( msg->readcount > msg->cursize ) {
 			Com_Error (ERR_DROP,"CL_ParsePacketEntities: end of message");
 		}
+
+		if ( newnum <= lastnum || newnum < 0 || newnum >= MAX_GENTITIES ) {
+			Com_Error( ERR_DROP, "CL_ParsePacketEntities: bad entity number %i", newnum );
+		}
+		lastnum = newnum;
 
 		while ( oldnum < newnum ) {
 			// one or more entities from the old packet are unchanged
@@ -457,6 +463,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	// if not valid, dump the entire thing now that it has
 	// been properly read
 	if ( !newSnap.valid ) {
+		Com_Error( ERR_DROP, "CL_ParseSnapshot: invalid snapshot" );
 		return;
 	}
 
@@ -541,6 +548,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 	}
 	ctx->serverReliableAcknowledge = ctx->clc.serverCommandSequence;
 	ctx->newGamestate = qfalse;
+	ctx->hadDownload = qfalse;
 	qboolean firstServerCommandInMessage = qtrue;
 
 	//
@@ -555,6 +563,9 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		cmd = MSG_ReadByte( msg );
 
 		if ( cmd == svc_EOF) {
+			if ( !ctx->hadDownload && msg->readcount != msg->cursize ) {
+				Com_Error( ERR_DROP, "CL_ParseServerMessage: readcount != cursize at svc_EOF" );
+			}
 			SHOWNET( msg, "END OF MESSAGE" );
 			int readBits = msg->bit & 7;
 			int mask = ( ( 1 << readBits ) - 1 );
@@ -604,6 +615,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			break;
 		case svc_download:
 			CL_ParseDownload( msg );
+			ctx->hadDownload = qtrue;
 			break;
 		case svc_mapchange:
 			//if ( cls.cgameStarted )

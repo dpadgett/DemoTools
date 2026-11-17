@@ -20,22 +20,41 @@ int writeTailDataToMsg( msg_t *msg ) {
 		}
 		if ( demo->tailLen == 8 && ((int *) demo->tail)[0] == -1 && ( (int*) demo->tail )[1] == -1 ) {
 			// don't write -1 -1 tail, since it is by far the most common.  instead, write if the tail is 0.
+			free( demo->tail );
+			demo->tail = NULL;
+			demo->tailLen = 0;
 			demo->tailSent = qtrue;
 			continue;
 		}
-		numWritten++;
-		// write the tail data.  if there was no tail, write tailLen -1.
-		MSG_WriteByte( msg, svc_demoTailData );
-		MSG_WriteByte( msg, idx );
 		if ( demo->tailLen == 0 ) {
+			if ( msg->cursize > msg->maxsize - 65536 && numWritten > 0 ) {
+				return numWritten;
+			}
+			numWritten++;
+			MSG_WriteByte( msg, svc_demoTailData );
+			MSG_WriteByte( msg, idx );
 			MSG_WriteLong( msg, -1 );
-		} else {
-			MSG_WriteLong( msg, demo->tailLen );
-			MSG_WriteData( msg, demo->tail, demo->tailLen );
+			free( demo->tail );
+			demo->tail = NULL;
+			demo->tailSent = qtrue;
+			continue;
+		}
+		while ( demo->tailOffset < demo->tailLen ) {
+			if ( msg->cursize > msg->maxsize - 131072 && numWritten > 0 ) {
+				return numWritten;
+			}
+			int chunkLen = Q_min( demo->tailLen - demo->tailOffset, 65536 );
+			numWritten++;
+			MSG_WriteByte( msg, svc_demoTailData );
+			MSG_WriteByte( msg, idx );
+			MSG_WriteLong( msg, chunkLen );
+			MSG_WriteData( msg, demo->tail + demo->tailOffset, chunkLen );
+			demo->tailOffset += chunkLen;
 		}
 		free( demo->tail );
 		demo->tail = NULL;
 		demo->tailLen = 0;
+		demo->tailOffset = 0;
 		demo->tailSent = qtrue;
 	}
 	return numWritten;
@@ -44,41 +63,43 @@ int writeTailDataToMsg( msg_t *msg ) {
 void writeTailData( FILE* fp ) {
 	static byte	bufData[MAX_COMBINED_MSGLEN];
 	msg_t	buf;
-	int			i;
 	int			len;
-	entityState_t* ent;
-	entityState_t	nullstate;
-	char* s;
 
-	// write out the gamestate message
-	MSG_Init( &buf, bufData, sizeof( bufData ) );
-	MSG_Bitstream( &buf );
+	while ( 1 ) {
+		MSG_Init( &buf, bufData, sizeof( bufData ) );
+		MSG_Bitstream( &buf );
 
-	// NOTE, MRE: all server->client messages now acknowledge
-	// for gamestate message, reliableAcknowledge is transmitted differently
-	int serverMessageSequenceMask = 0;
-	MSG_WriteLong( &buf, serverMessageSequenceMask );
-	int reliableAcknowledgeMask = 0;
-	MSG_WriteLong( &buf, reliableAcknowledgeMask );
-	//MSG_WriteLong( &buf, ctx->clc.reliableSequence );
+		int serverMessageSequenceMask = 0;
+		MSG_WriteLong( &buf, serverMessageSequenceMask );
+		int reliableAcknowledgeMask = 0;
+		MSG_WriteLong( &buf, reliableAcknowledgeMask );
 
-	int numWritten = writeTailDataToMsg( &buf );
-	if ( numWritten == 0 ) {
-		// there wasn't anything to write, so don't bother writing the packet
-		return;
+		int numWritten = writeTailDataToMsg( &buf );
+		for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
+			demoMetadata_t* demo = &cctx->demos[idx];
+			if ( demo->eos && demo->tailSent && !demo->eosSent ) {
+				MSG_WriteByte( &buf, svc_demoEnded );
+				MSG_WriteByte( &buf, idx );
+				demo->eosSent = qtrue;
+				numWritten++;
+			}
+		}
+		if ( numWritten == 0 ) {
+			// there wasn't anything to write, so don't bother writing the packet
+			return;
+		}
+
+		// finished writing the client packet
+		MSG_WriteByte( &buf, svc_EOF );
+
+		// write it to the demo file
+		len = LittleLong( ctx->clc.serverMessageSequence );
+		fwrite( &len, 1, 4, fp );
+
+		len = LittleLong( buf.cursize );
+		fwrite( &len, 4, 1, fp );
+		fwrite( buf.data, 1, buf.cursize, fp );
 	}
-
-	// finished writing the client packet
-	MSG_WriteByte( &buf, svc_EOF );
-
-	// write it to the demo file
-	len = LittleLong( ctx->clc.serverMessageSequence );
-	ctx->clc.serverMessageSequence++;
-	fwrite( &len, 1, 4, fp );
-
-	len = LittleLong( buf.cursize );
-	fwrite( &len, 4, 1, fp );
-	fwrite( buf.data, 1, buf.cursize, fp );
 }
 
 void writeMergedGamestateData( FILE* fp ) {
@@ -680,7 +701,7 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 				}
 			}
 		}
-		if ( demo->eos && !demo->eosSent ) {
+		if ( demo->eos && demo->tailSent && !demo->eosSent ) {
 			MSG_WriteByte( msg, svc_demoEnded );
 			MSG_WriteByte( msg, idx );
 			demo->eosSent = qtrue;

@@ -562,7 +562,7 @@ qboolean CL_ReadDemoMessageWithBuf( fileHandle_t demofile, msg_t *msg, int* bufL
 		if ( buf.cursize == -1 ) {
 			return qfalse;
 		}
-		if ( buf.cursize > buf.maxsize ) {
+		if ( buf.cursize < 0 || buf.cursize > buf.maxsize || ctx->clc.serverMessageSequence < 0 ) {
 			Com_Error (ERR_DROP, "CL_ReadDemoMessage: demoMsglen > MAX_MSGLEN");
 		}
 		*readBuf = (byte *) realloc( *readBuf, *bufLen + buf.cursize );
@@ -597,7 +597,7 @@ qboolean CL_ReadDemoMessage( fileHandle_t demofile, msg_t* msg ) {
 	if ( msg->cursize == -1 ) {
 		return qfalse;
 	}
-	if ( msg->cursize > msg->maxsize ) {
+	if ( msg->cursize < 0 || msg->cursize > msg->maxsize || ctx->clc.serverMessageSequence < 0 ) {
 		Com_Error( ERR_DROP, "CL_ReadDemoMessage: demoMsglen > MAX_MSGLEN" );
 	}
 	int r = FS_Read( msg->data, msg->cursize, demofile );
