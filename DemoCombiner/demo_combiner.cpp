@@ -96,6 +96,8 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 	while ( ( msg = ReadNextMessageRaw( demo ) ) != nullptr ) {
 		int lastSnapFlags = ctx->cl.snap.snapFlags;
 		qboolean lastSnapValid = ctx->cl.snap.valid;
+		int prevChecksumFeed = ctx->clc.checksumFeed;
+		int prevClientNum = ctx->clc.clientNum;
 		try {
 			CL_ParseServerMessage( msg );
 			if ( ctx->hadDownload ) {
@@ -106,6 +108,20 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			}
 			if ( ctx->hadUnsupportedSvc ) {
 				Com_Error( ERR_DROP, "CL_ParseServerMessage: unsupported svc in demo message" );
+			}
+			if ( ctx->newGamestate ) {
+				if ( cctx->ctx.clc.clientNum == -1 ) {
+					if ( ctx->clc.checksumFeed != cctx->ctx.clc.checksumFeed
+						|| ( demo->metadata->clientnum != -1 && ctx->clc.clientNum != demo->metadata->clientnum )
+						|| memcmp( ctx->cl.entityBaselines, cctx->ctx.cl.entityBaselines, sizeof( ctx->cl.entityBaselines ) ) != 0
+						|| memcmp( ctx->entityBaselinesFloatForced, cctx->ctx.entityBaselinesFloatForced, sizeof( ctx->entityBaselinesFloatForced ) ) != 0 ) {
+						Com_Error( ERR_DROP, "CL_ParseGamestate: gamestate mismatch with combined header" );
+					}
+				} else if ( pendingIdx > 0 ) {
+					if ( ctx->clc.checksumFeed != prevChecksumFeed || ctx->clc.clientNum != prevClientNum ) {
+						Com_Error( ERR_DROP, "CL_ParseGamestate: initial gamestate mismatch" );
+					}
+				}
 			}
 		} catch ( int ) {
 			// thrown code means it wasn't a fatal error, so we can still dump what we had
@@ -540,6 +556,25 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 	mergedCtx.ctx.clc.lastExecutedServerCommand = mergedCtx.ctx.clc.serverCommandSequence = 0; // entryList[0].firstServerCommand;
 	mergedCtx.ctx.clc.serverCommandSequence--;
 	mergedCtx.ctx.clc.clientNum = -1;
+	for ( idx = 0; idx < numDemos; idx++ ) {
+		if ( !entryList[idx].eos && entryList[idx].numInitialGamestates > 0 ) {
+			if ( entryList[idx].ctx->clc.checksumFeed != mergedCtx.ctx.clc.checksumFeed
+				|| memcmp( entryList[idx].ctx->cl.entityBaselines, mergedCtx.ctx.cl.entityBaselines, sizeof( mergedCtx.ctx.cl.entityBaselines ) ) != 0
+				|| memcmp( entryList[idx].ctx->entityBaselinesFloatForced, mergedCtx.ctx.entityBaselinesFloatForced, sizeof( mergedCtx.ctx.entityBaselinesFloatForced ) ) != 0 ) {
+				FS_FCloseFile( entryList[idx].fp );
+				FS_FOpenFileRead( entryList[idx].filename, &entryList[idx].fp, qfalse );
+				free( entryList[idx].metadata->tail );
+				entryList[idx].metadata->tail = NULL;
+				entryList[idx].metadata->tailLen = 0;
+				ReadRemainingDemoTail( &entryList[idx] );
+				entryList[idx].eos = qtrue;
+				entryList[idx].metadata->eos = qtrue;
+				entryList[idx].metadata->firstFrameTime = -1;
+				entryList[idx].metadata->lastGamestate = nullptr;
+				entryList[idx].numInitialGamestates = 0;
+			}
+		}
+	}
 	ctx = &mergedCtx.ctx;
 	ctx->clc.serverMessageSequence = 0;
 	int serverCommandOffset = 0;
