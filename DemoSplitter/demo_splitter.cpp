@@ -673,6 +673,7 @@ void CL_ParseMergedGamestate( msg_t* msg ) {
 
 	Com_Memset( &ctx->cl.gameState, 0, sizeof( ctx->cl.gameState ) );
 	Com_Memset( &ctx->cl.entityBaselines, 0, sizeof( ctx->cl.entityBaselines ) );
+	Com_Memset( &ctx->entityBaselinesFloatForced, 0, sizeof( ctx->entityBaselinesFloatForced ) );
 
 	// a gamestate always marks a server command sequence
 	//ctx->clc.serverCommandSequence = MSG_ReadLong( msg );
@@ -721,7 +722,7 @@ void CL_ParseMergedGamestate( msg_t* msg ) {
 			}
 			Com_Memset( &nullstate, 0, sizeof( nullstate ) );
 			es = &ctx->cl.entityBaselines[newnum];
-			MSG_ReadDeltaEntity( msg, &nullstate, es, newnum );
+			MSG_ReadDeltaEntityWithFloats( msg, &nullstate, es, &ctx->entityBaselinesFloatForced[newnum], newnum, qfalse );
 		}
 		else {
 			Com_Error( ERR_DROP, "CL_ParseGamestate: bad command byte" );
@@ -1109,6 +1110,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			states[d].ctx->clc.clientNum = clientnum;
 			states[d].ctx->cl.gameState = mergedCtx.ctx.cl.gameState;
 			memcpy( states[d].ctx->cl.entityBaselines, mergedCtx.ctx.cl.entityBaselines, sizeof( mergedCtx.ctx.cl.entityBaselines ) );
+			memcpy( states[d].ctx->entityBaselinesFloatForced, mergedCtx.ctx.entityBaselinesFloatForced, sizeof( mergedCtx.ctx.entityBaselinesFloatForced ) );
 			states[d].ctx->clc.checksumFeed = mergedCtx.ctx.clc.checksumFeed;
 
 			const char *curOutFilename = outFilename;
@@ -1342,6 +1344,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			}
 			// write header
 			memcpy( entry.ctx->cl.entityBaselines, cctx->ctx.cl.entityBaselines, sizeof( cctx->ctx.cl.entityBaselines ) );
+			memcpy( entry.ctx->entityBaselinesFloatForced, cctx->ctx.entityBaselinesFloatForced, sizeof( cctx->ctx.entityBaselinesFloatForced ) );
 			entry.ctx->clc.checksumFeed = cctx->ctx.clc.checksumFeed;
 			entry.ctx->messageExtraByte = gamestateMetadata->messageExtraByte;
 			ctx = entry.ctx;

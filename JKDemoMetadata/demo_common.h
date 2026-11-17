@@ -10,6 +10,7 @@ typedef struct demoContext_s {
 	int areabytes;  // of cl.snap
 	byte messageExtraByte;
 #define ENTITY_POOL_SIZE 65536
+	entityState_t	entityBaselinesFloatForced[MAX_GENTITIES];
 	entityState_t	parseEntitiesFloatForced[MAX_PARSE_ENTITIES];
 	entityState_t*	parseEntityPtr[MAX_PARSE_ENTITIES];
 	uint32_t		parseEntityVersion[MAX_PARSE_ENTITIES];

@@ -357,6 +357,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		}
 		mergedCtx.ctx.cl.gameState = entryList[minIdx].ctx->cl.gameState;
 		memcpy( mergedCtx.ctx.cl.entityBaselines, entryList[minIdx].ctx->cl.entityBaselines, sizeof( mergedCtx.ctx.cl.entityBaselines ) );
+		memcpy( mergedCtx.ctx.entityBaselinesFloatForced, entryList[minIdx].ctx->entityBaselinesFloatForced, sizeof( mergedCtx.ctx.entityBaselinesFloatForced ) );
 		mergedCtx.ctx.clc = entryList[minIdx].ctx->clc;
 		mergedCtx.ctx.cls = entryList[minIdx].ctx->cls;
 		mergedCtx.ctx.serverReliableAcknowledge = entryList[minIdx].ctx->serverReliableAcknowledge;

@@ -48,7 +48,7 @@ void writeDemoHeaderToMsg(msg_t *msg, int serverCommandSequence) {
 		if ( cl_shownet->integer >= 2 ) {
 			Com_Printf( "baseline %3i: %d\n", msg->cursize, ent->number );
 		}
-		MSG_WriteDeltaEntity ( msg, &nullstate, ent, qtrue );
+		MSG_WriteDeltaEntityWithFloatsForced ( msg, &nullstate, ent, &ctx->entityBaselinesFloatForced[i], qtrue );
 	}
 
 	MSG_WriteByte( msg, svc_EOF );

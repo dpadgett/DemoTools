@@ -650,6 +650,10 @@ void MSG_ReadDeltaEntityWithFloats( msg_t* msg, entityState_t* from, entityState
 					// full floating point value
 					*toF = MSG_ReadBits( msg, 32 );
 				}
+				if ( *toF == *fromF && floatForced ) {
+					*(int*) ( (byte*) floatForced + field->offset ) = 1;
+					hasForced = 1;
+				}
 			}
 		}
 		else {

@@ -200,7 +200,7 @@ void writeMergedDemoHeader( FILE* fp ) {
 			continue;
 		}
 		MSG_WriteByte( &buf, svc_baseline );
-		MSG_WriteDeltaEntity( &buf, &nullstate, ent, qtrue );
+		MSG_WriteDeltaEntityWithFloatsForced( &buf, &nullstate, ent, &ctx->entityBaselinesFloatForced[i], qtrue );
 	}
 
 	MSG_WriteByte( &buf, svc_EOF );

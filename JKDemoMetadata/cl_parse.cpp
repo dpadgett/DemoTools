@@ -85,6 +85,7 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 
 	Com_Memset( &ctx->cl.gameState, 0, sizeof( ctx->cl.gameState ) );
 	Com_Memset( &ctx->cl.entityBaselines, 0, sizeof( ctx->cl.entityBaselines ) );
+	Com_Memset( &ctx->entityBaselinesFloatForced, 0, sizeof( ctx->entityBaselinesFloatForced ) );
 
 	// a gamestate always marks a server command sequence
 	ctx->clc.serverCommandSequence = MSG_ReadLong( msg );
@@ -134,7 +135,7 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 			}
 			Com_Memset (&nullstate, 0, sizeof(nullstate));
 			es = &ctx->cl.entityBaselines[ newnum ];
-			MSG_ReadDeltaEntity( msg, &nullstate, es, newnum );
+			MSG_ReadDeltaEntityWithFloats( msg, &nullstate, es, &ctx->entityBaselinesFloatForced[ newnum ], newnum, qfalse );
 		} else {
 			Com_Error( ERR_DROP, "CL_ParseGamestate: bad command byte" );
 		}
