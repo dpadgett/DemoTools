@@ -38,8 +38,13 @@ typedef struct {
 	// idx of merged server command seq where the last server cmd from this demo was
 	int serverCommandSyncIdx;
 	demoMetadata_t* metadata;
-	gamestateMetadata_t initialGamestates[16];
+	gamestateMetadata_t* initialGamestates;
+	gameState_t* initialGameStates;
+	gamestateMetadata_t** pendingGamestatePtrs;
 	int numInitialGamestates;
+	int maxInitialGamestates;
+	gameState_t splitterGameState;
+	qboolean splitterSeqInitialized;
 } demoEntry_t;
 
 static msg_t s_msgPool[4];
@@ -86,7 +91,8 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 	int prevServerCommandSequence = ctx->clc.serverCommandSequence;
 	ctx->clc.lastExecutedServerCommand = ctx->clc.serverCommandSequence + 1;
 	// only append the gamestates if a frame is found after them.  otherwise, the splitter won't write them out
-	int gamestateIdx = cctx->numGamestates;
+	gamestateMetadata_t* prevLastGamestate = demo->metadata->lastGamestate;
+	int pendingIdx = 0;
 	while ( ( msg = ReadNextMessageRaw( demo ) ) != nullptr ) {
 		int lastSnapFlags = ctx->cl.snap.snapFlags;
 		qboolean lastSnapValid = ctx->cl.snap.valid;
@@ -100,7 +106,7 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 
 		if ( demo->metadata->lastGamestate == nullptr && prevServerCommandSequence == 0 && ctx->clc.serverCommandSequence > 0 ) {
 			ctx->clc.lastExecutedServerCommand = ctx->serverReliableAcknowledge + 1;
-		} else if ( demo->framesSaved == 0 && ( gamestateIdx > cctx->numGamestates ) && ctx->cl.newSnapshots && ctx->clc.serverCommandSequence > 0 && ctx->serverReliableAcknowledge + 1 < ctx->clc.lastExecutedServerCommand ) {
+		} else if ( demo->framesSaved == 0 && pendingIdx > 0 && ctx->cl.newSnapshots && ctx->clc.serverCommandSequence > 0 && ctx->serverReliableAcknowledge + 1 < ctx->clc.lastExecutedServerCommand ) {
 			ctx->clc.lastExecutedServerCommand = ctx->serverReliableAcknowledge + 1;
 		}
 		prevServerCommandSequence = ctx->clc.serverCommandSequence;
@@ -114,15 +120,27 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		}
 
 		if ( !ctx->cl.newSnapshots ) {
-			demo->metadata->clientnum = ctx->clc.clientNum;
-			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[gamestateIdx++];
-			gamestateMetadata->demoIdx = demo->metadata - cctx->demos;
-			gamestateMetadata->serverMessageSequence = ctx->clc.serverMessageSequence;
-			gamestateMetadata->serverReliableAcknowledge = ctx->serverReliableAcknowledge;
-			gamestateMetadata->serverCommandSequence = ctx->clc.serverCommandSequence;
-			gamestateMetadata->reliableAcknowledge = ctx->clc.reliableAcknowledge;
-			gamestateMetadata->messageExtraByte = ctx->messageExtraByte;
-			demo->metadata->lastGamestate = gamestateMetadata;
+			if ( ctx->newGamestate ) {
+				if ( pendingIdx >= demo->maxInitialGamestates ) {
+					int newMax = demo->maxInitialGamestates ? demo->maxInitialGamestates * 2 : 16;
+					demo->initialGamestates = (gamestateMetadata_t*) realloc( demo->initialGamestates, newMax * sizeof( gamestateMetadata_t ) );
+					demo->initialGameStates = (gameState_t*) realloc( demo->initialGameStates, newMax * sizeof( gameState_t ) );
+					demo->pendingGamestatePtrs = (gamestateMetadata_t**) realloc( demo->pendingGamestatePtrs, newMax * sizeof( gamestateMetadata_t* ) );
+					demo->maxInitialGamestates = newMax;
+				}
+				demo->metadata->clientnum = ctx->clc.clientNum;
+				gamestateMetadata_t* gamestateMetadata = &demo->initialGamestates[pendingIdx];
+				Com_Memset( gamestateMetadata, 0, sizeof( *gamestateMetadata ) );
+				gamestateMetadata->demoIdx = demo->metadata - cctx->demos;
+				gamestateMetadata->serverMessageSequence = ctx->clc.serverMessageSequence;
+				gamestateMetadata->serverReliableAcknowledge = ctx->serverReliableAcknowledge;
+				gamestateMetadata->serverCommandSequence = ctx->clc.serverCommandSequence;
+				gamestateMetadata->reliableAcknowledge = ctx->clc.reliableAcknowledge;
+				gamestateMetadata->messageExtraByte = ctx->messageExtraByte;
+				demo->initialGameStates[pendingIdx] = ctx->cl.gameState;
+				demo->metadata->lastGamestate = gamestateMetadata;
+				pendingIdx++;
+			}
 			FreeMsg( lastmsg );
 			lastmsg = msg;
 			continue;
@@ -138,10 +156,11 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 		demo->metadata->tailLen = 0;
 
 		// commit gamestates
-		cctx->numGamestates = gamestateIdx;
+		demo->numInitialGamestates = pendingIdx;
 		return msg;
 	}
 	// we didn't find a snapshot.  any other messages are concat into the demo tail.
+	demo->metadata->lastGamestate = prevLastGamestate;
 	return lastmsg;
 }
 
@@ -152,28 +171,21 @@ qboolean ParseDemoContext( demoEntry_t *demo ) {
 	oldCtx = ctx;
 	ctx = demo->ctx;
 	demo->metadata->clientnum = -1;
-	int prevNumGamestates = cctx->numGamestates;
 	// load initial state from demo
 	msg_t *msg;
 	if ( ( msg = ReadNextMessage( demo ) ) != nullptr ) {
 		demo->metadata->firstFrameTime = ctx->cl.snap.serverTime;
-		demo->numInitialGamestates = cctx->numGamestates - prevNumGamestates;
 		if ( !ctx->cl.newSnapshots ) {
 			demo->metadata->firstFrameTime = -1;
 			demo->eos = qtrue;
 			demo->metadata->eos = qtrue;
 			demo->numInitialGamestates = 0;
 		}
-		for ( int i = 0; i < demo->numInitialGamestates; i++ ) {
-			demo->initialGamestates[i] = cctx->gamestates[prevNumGamestates + i];
-		}
-		cctx->numGamestates = prevNumGamestates;
 		demo->metadata->lastGamestate = demo->numInitialGamestates > 0 ? &demo->initialGamestates[demo->numInitialGamestates - 1] : nullptr;
 		ctx = oldCtx;
 		FreeMsg( msg );
 		return qtrue;
 	}
-	cctx->numGamestates = prevNumGamestates;
 	demo->metadata->firstFrameTime = -1;
 	demo->eos = qtrue;
 	demo->metadata->eos = qtrue;
@@ -342,9 +354,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 	}
 	for ( idx = 0; idx < numDemos; idx++ ) {
 		entryList[idx].metadata = &mergedCtx.demos[idx];
-		if ( entryList[idx].numInitialGamestates > 0 ) {
-			entryList[idx].metadata->lastGamestate = &entryList[idx].initialGamestates[entryList[idx].numInitialGamestates - 1];
-		}
+		entryList[idx].metadata->lastGamestate = entryList[idx].numInitialGamestates > 0 ? &entryList[idx].initialGamestates[entryList[idx].numInitialGamestates - 1] : nullptr;
 	}
 	mergedCtx.numDemos = 0;
 	// start with a base ctx
@@ -404,7 +414,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			while ( cctx->numDemos < numDemos ) {
 				int newIdx = cctx->numDemos++;
 				for ( int g = 0; g < entryList[newIdx].numInitialGamestates; g++ ) {
-					gamestateMetadata_t *gs = &cctx->gamestates[cctx->numGamestates++];
+					gamestateMetadata_t *gs = AllocCombinedGamestate( cctx );
 					*gs = entryList[newIdx].initialGamestates[g];
 					gs->demoIdx = newIdx;
 					entryList[newIdx].metadata->lastGamestate = gs;
@@ -434,11 +444,14 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		}
 		while ( cctx->numDemos < numDemos && entryList[cctx->numDemos].metadata->firstFrameTime <= frameTime ) {
 			int newIdx = cctx->numDemos++;
-			for ( int g = 0; g < entryList[newIdx].numInitialGamestates; g++ ) {
-				gamestateMetadata_t *gs = &cctx->gamestates[cctx->numGamestates++];
-				*gs = entryList[newIdx].initialGamestates[g];
-				gs->demoIdx = newIdx;
-				entryList[newIdx].metadata->lastGamestate = gs;
+			if ( entryList[newIdx].eos ) {
+				for ( int g = 0; g < entryList[newIdx].numInitialGamestates; g++ ) {
+					gamestateMetadata_t *gs = AllocCombinedGamestate( cctx );
+					*gs = entryList[newIdx].initialGamestates[g];
+					gs->demoIdx = newIdx;
+					entryList[newIdx].pendingGamestatePtrs[g] = gs;
+					entryList[newIdx].metadata->lastGamestate = gs;
+				}
 			}
 		}
 		// find all demos that got this frame
@@ -450,6 +463,13 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 		//int nonMatches[MAX_CLIENTS];
 		for ( idx = 0; idx < cctx->numDemos; idx++ ) {
 			if ( entryList[idx].ctx->cl.snap.serverTime == frameTime && !entryList[idx].eos ) {
+				for ( int g = 0; g < entryList[idx].numInitialGamestates; g++ ) {
+					gamestateMetadata_t *gs = AllocCombinedGamestate( cctx );
+					*gs = entryList[idx].initialGamestates[g];
+					gs->demoIdx = idx;
+					entryList[idx].pendingGamestatePtrs[g] = gs;
+					entryList[idx].metadata->lastGamestate = gs;
+				}
 				mergedCtx.matches[mergedCtx.numMatches++] = idx;
 				int clientNum = entryList[idx].ctx->clc.clientNum;
 				mergedCtx.matchedClients |= 1 << clientNum;
@@ -586,34 +606,89 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			// write header first before we update configstrings
 			writeMergedDemoHeader( outFile );
 		}
-		if ( cctx->numDemos > cctx->numHandledDemos || cctx->numGamestates > cctx->numHandledGamestates ) {
-			writeMergedGamestateData( outFile );
-		}
+		auto applyCsCommandToGameState = []( gameState_t *gs, char *command, char *bigConfigString ) {
+			if ( !( ( command[0] == 'c' && command[1] == 's' ) || ( command[0] == 'b' && command[1] == 'c' && command[2] == 's' ) ) ) {
+				return;
+			}
+			Cmd_TokenizeString( command );
+			char* cmd = Cmd_Argv( 0 );
+			if ( !strcmp( cmd, "bcs0" ) ) {
+				Com_sprintf( bigConfigString, BIG_INFO_STRING, "cs %s \"%s", Cmd_Argv( 1 ), Cmd_Argv( 2 ) );
+			} else if ( !strcmp( cmd, "bcs1" ) ) {
+				char *s = Cmd_Argv( 2 );
+				if ( strlen( bigConfigString ) + strlen( s ) >= BIG_INFO_STRING ) {
+					Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+				}
+				strcat( bigConfigString, s );
+			} else if ( !strcmp( cmd, "bcs2" ) ) {
+				char *s = Cmd_Argv( 2 );
+				if ( strlen( bigConfigString ) + strlen( s ) + 1 >= BIG_INFO_STRING ) {
+					Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
+				}
+				strcat( bigConfigString, s );
+				strcat( bigConfigString, "\"" );
+				command = bigConfigString;
+				Cmd_TokenizeString( command );
+				cmd = Cmd_Argv( 0 );
+			}
+			if ( !strcmp( cmd, "cs" ) ) {
+				gameState_t savedGs = ctx->cl.gameState;
+				ctx->cl.gameState = *gs;
+				CL_ConfigstringModified();
+				*gs = ctx->cl.gameState;
+				ctx->cl.gameState = savedGs;
+			}
+		};
 		for ( int matchIdx = 0; matchIdx < mergedCtx.numMatches; matchIdx++ ) {
 			idx = mergedCtx.matches[matchIdx];
-			demoMetadata_t* metadata = entryList[idx].metadata;
-			if ( metadata->firstFrameTime != frameTime ) {
-				continue;
-			}
 			demoContext_t* entryCtx = entryList[idx].ctx;
-			// this is this demo's first frame, make sure that the configstrings match the demo's gamestate
-			// (might be different if some packets are lost)
-			if ( ctx->cl.gameState.dataCount != entryCtx->cl.gameState.dataCount
-				|| memcmp( ctx->cl.gameState.stringData, entryCtx->cl.gameState.stringData, ctx->cl.gameState.dataCount )
-				|| memcmp( ctx->cl.gameState.stringOffsets, entryCtx->cl.gameState.stringOffsets, sizeof( ctx->cl.gameState.stringOffsets ) ) ) {
-				// TODO: we might need to execute any configstring server commands this client got in its gamestate message on the merged ctx to reduce the number of discrepancies here
-				Com_Printf( "configstrings differ!\n" );
-				for ( int i = 0; i < MAX_CONFIGSTRINGS; i++ ) {
-					char* orig = entryCtx->cl.gameState.stringData + entryCtx->cl.gameState.stringOffsets[i];
-					char* combined = ctx->cl.gameState.stringData + ctx->cl.gameState.stringOffsets[i];
-					if ( Q_strncmp( orig, combined, MAX_STRING_CHARS ) ) {
-						Com_Printf( "configstring %d: orig %s, but we have %s\n", i, orig, combined );
-						int overrideIdx = metadata->lastGamestate->numConfigStringOverrides++;
-						metadata->lastGamestate->configStringOverrideIndex[overrideIdx] = i;
-						metadata->lastGamestate->configStringOverride[overrideIdx] = orig;
+			if ( !entryList[idx].splitterSeqInitialized ) {
+				entryList[idx].splitterGameState = mergedCtx.ctx.cl.gameState;
+				entryList[idx].splitterSeqInitialized = qtrue;
+			}
+			int firstDemoCmd = entryCtx->clc.lastExecutedServerCommand;
+			char demoBigConfigString[BIG_INFO_STRING];
+			demoBigConfigString[0] = '\0';
+			for ( int g = 0; g < entryList[idx].numInitialGamestates; g++ ) {
+				gamestateMetadata_t* gsMeta = entryList[idx].pendingGamestatePtrs[g];
+				gameState_t* targetGs = &entryList[idx].initialGameStates[g];
+				for ( int commandNum = firstDemoCmd; commandNum <= gsMeta->serverCommandSequence; commandNum++, firstDemoCmd++ ) {
+					if ( entryList[idx].framesSaved > 0 && entryCtx->serverCommandSeq[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )] == commandNum + 1 ) {
+						char* command = entryCtx->serverCommands[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
+						applyCsCommandToGameState( &entryList[idx].splitterGameState, command, demoBigConfigString );
+					}
+				}
+				if ( entryList[idx].splitterGameState.dataCount != targetGs->dataCount
+					|| memcmp( entryList[idx].splitterGameState.stringData, targetGs->stringData, entryList[idx].splitterGameState.dataCount )
+					|| memcmp( entryList[idx].splitterGameState.stringOffsets, targetGs->stringOffsets, sizeof( entryList[idx].splitterGameState.stringOffsets ) ) ) {
+					Com_Printf( "configstrings differ!\n" );
+					for ( int i = 0; i < MAX_CONFIGSTRINGS; i++ ) {
+						char* orig = targetGs->stringData + targetGs->stringOffsets[i];
+						char* combined = entryList[idx].splitterGameState.stringData + entryList[idx].splitterGameState.stringOffsets[i];
+						if ( Q_strncmp( orig, combined, MAX_STRING_CHARS ) ) {
+							Com_Printf( "configstring %d: orig %s, but we have %s\n", i, orig, combined );
+							AddConfigStringOverride( gsMeta, i, orig );
+							gameState_t savedGs = ctx->cl.gameState;
+							ctx->cl.gameState = entryList[idx].splitterGameState;
+							Cmd_TokenizeString( va( "cs %d \"%s\"\n", i, orig ) );
+							CL_ConfigstringModified();
+							entryList[idx].splitterGameState = ctx->cl.gameState;
+							ctx->cl.gameState = savedGs;
+						}
 					}
 				}
 			}
+			entryList[idx].numInitialGamestates = 0;
+			for ( int commandNum = firstDemoCmd; commandNum <= entryCtx->clc.serverCommandSequence; commandNum++ ) {
+				if ( entryCtx->serverCommandSeq[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )] == commandNum + 1 ) {
+					char* command = entryCtx->serverCommands[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
+					applyCsCommandToGameState( &entryList[idx].splitterGameState, command, demoBigConfigString );
+				}
+			}
+			entryList[idx].framesSaved++;
+		}
+		if ( cctx->numDemos > cctx->numHandledDemos || cctx->numGamestates > cctx->numHandledGamestates ) {
+			writeMergedGamestateData( outFile );
 		}
 		char bigConfigString[BIG_INFO_STRING];
 		for ( int commandNum = firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
@@ -803,8 +878,14 @@ advanceLoop:
 	for ( idx = 0; idx < numDemos; idx++ ) {
 		FS_FCloseFile( entryList[idx].fp );
 		free( entryList[idx].ctx );
+		free( entryList[idx].initialGamestates );
+		free( entryList[idx].initialGameStates );
+		free( entryList[idx].pendingGamestatePtrs );
 	}
 	free( entryList );
+	FreeCombinedGamestates( cctx );
+	free( cctx->demos );
+	cctx->demos = NULL;
 	fclose( outFile );
 
 	FILE *metaFile;

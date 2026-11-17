@@ -154,6 +154,7 @@ void CL_ParseGamestate( msg_t *msg,	qboolean firstServerCommandInMessage ) {
 	ctx->clc.checksumFeed = MSG_ReadLong( msg );
 
 	CL_ParseRMG ( msg ); //rwwRMG - get info for it from the server
+	ctx->newGamestate = qtrue;
 }
 
 /*
@@ -539,6 +540,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		Com_Printf( "reliableAcknowledge: %i\n", ctx->clc.reliableAcknowledge );
 	}
 	ctx->serverReliableAcknowledge = ctx->clc.serverCommandSequence;
+	ctx->newGamestate = qfalse;
 	qboolean firstServerCommandInMessage = qtrue;
 
 	//

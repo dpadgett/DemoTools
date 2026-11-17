@@ -21,8 +21,10 @@ typedef struct gamestateMetadata_s {
 	int reliableAcknowledge;
 	byte messageExtraByte;
 	int numConfigStringOverrides;
-	int configStringOverrideIndex[MAX_CONFIGSTRINGS];
-	char *configStringOverride[MAX_CONFIGSTRINGS];
+	int maxConfigStringOverrides;
+	int *configStringOverrideIndex;
+	char **configStringOverride;
+	qboolean overridesSent;
 } gamestateMetadata_t;
 
 typedef struct demoMetadata_s {
@@ -76,7 +78,54 @@ typedef struct combinedDemoContext_s {
 	demoMetadata_t *demos;
 	int numGamestates;
 	int numHandledGamestates;
-	gamestateMetadata_t gamestates[1024];
+	int maxGamestates;
+	gamestateMetadata_t **gamestates;
 } combinedDemoContext_t;
 
 extern combinedDemoContext_t* cctx;
+
+static inline gamestateMetadata_t* AllocCombinedGamestate( combinedDemoContext_t *c ) {
+	if ( c->numGamestates >= c->maxGamestates ) {
+		int newMax = c->maxGamestates ? c->maxGamestates * 2 : 64;
+		c->gamestates = (gamestateMetadata_t**) realloc( c->gamestates, newMax * sizeof( gamestateMetadata_t* ) );
+		c->maxGamestates = newMax;
+	}
+	gamestateMetadata_t *gs = (gamestateMetadata_t*) calloc( 1, sizeof( gamestateMetadata_t ) );
+	c->gamestates[c->numGamestates++] = gs;
+	return gs;
+}
+
+static inline void AddConfigStringOverride( gamestateMetadata_t *gs, int index, const char *str ) {
+	if ( gs->numConfigStringOverrides >= gs->maxConfigStringOverrides ) {
+		int newMax = gs->maxConfigStringOverrides ? gs->maxConfigStringOverrides * 2 : 16;
+		gs->configStringOverrideIndex = (int*) realloc( gs->configStringOverrideIndex, newMax * sizeof( int ) );
+		gs->configStringOverride = (char**) realloc( gs->configStringOverride, newMax * sizeof( char* ) );
+		gs->maxConfigStringOverrides = newMax;
+	}
+	int idx = gs->numConfigStringOverrides++;
+	gs->configStringOverrideIndex[idx] = index;
+	size_t len = strlen( str ) + 1;
+	gs->configStringOverride[idx] = (char*) malloc( len );
+	memcpy( gs->configStringOverride[idx], str, len );
+}
+
+static inline void FreeCombinedGamestates( combinedDemoContext_t *c ) {
+	if ( !c->gamestates ) {
+		return;
+	}
+	for ( int i = 0; i < c->numGamestates; i++ ) {
+		gamestateMetadata_t *gs = c->gamestates[i];
+		if ( gs ) {
+			for ( int j = 0; j < gs->numConfigStringOverrides; j++ ) {
+				free( gs->configStringOverride[j] );
+			}
+			free( gs->configStringOverride );
+			free( gs->configStringOverrideIndex );
+			free( gs );
+		}
+	}
+	free( c->gamestates );
+	c->gamestates = NULL;
+	c->numGamestates = 0;
+	c->maxGamestates = 0;
+}

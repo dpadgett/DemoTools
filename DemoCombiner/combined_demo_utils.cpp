@@ -117,7 +117,7 @@ void writeMergedGamestateData( FILE* fp ) {
 	// write the demo file metadata for each demo combined
 	for ( int idx = cctx->numHandledGamestates; idx < cctx->numGamestates; idx++, cctx->numHandledGamestates++ ) {
 		MSG_WriteByte( &buf, svc_demoGamestate );
-		gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[idx];
+		gamestateMetadata_t* gamestateMetadata = cctx->gamestates[idx];
 		MSG_WriteByte( &buf, gamestateMetadata->demoIdx );
 		MSG_WriteLong( &buf, gamestateMetadata->serverReliableAcknowledge );
 		MSG_WriteLong( &buf, gamestateMetadata->serverMessageSequence );
@@ -665,15 +665,19 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 		if ( demo->lastGamestate != NULL && demo->firstFrameTime == -1 ) {
 			demo->firstFrameTime = ctx->cl.snap.serverTime;
 		}
-		if ( demo->lastGamestate != NULL && demo->firstFrameTime == ctx->cl.snap.serverTime && demo->lastGamestate->numConfigStringOverrides > 0 ) {
-			// demo's first frame, send if any configstrings didn't match the demo's gamestate.
-			// (could happen from packet loss)
-			MSG_WriteByte( msg, svc_demoGamestateOverrides );
-			MSG_WriteByte( msg, idx );
-			MSG_WriteShort( msg, demo->lastGamestate->numConfigStringOverrides );
-			for ( int i = 0; i < demo->lastGamestate->numConfigStringOverrides; i++ ) {
-				MSG_WriteShort( msg, demo->lastGamestate->configStringOverrideIndex[i] );
-				MSG_WriteString( msg, demo->lastGamestate->configStringOverride[i] );
+		for ( int gIdx = 0; gIdx < cctx->numGamestates; gIdx++ ) {
+			gamestateMetadata_t* gs = cctx->gamestates[gIdx];
+			if ( gs->demoIdx == idx && !gs->overridesSent && gs->numConfigStringOverrides > 0 ) {
+				// send if any configstrings didn't match the demo's gamestate.
+				// (could happen from packet loss)
+				gs->overridesSent = qtrue;
+				MSG_WriteByte( msg, svc_demoGamestateOverrides );
+				MSG_WriteByte( msg, idx );
+				MSG_WriteShort( msg, gs->numConfigStringOverrides );
+				for ( int i = 0; i < gs->numConfigStringOverrides; i++ ) {
+					MSG_WriteShort( msg, gs->configStringOverrideIndex[i] );
+					MSG_WriteString( msg, gs->configStringOverride[i] );
+				}
 			}
 		}
 		if ( demo->eos && !demo->eosSent ) {

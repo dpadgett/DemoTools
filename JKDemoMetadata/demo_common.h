@@ -9,6 +9,7 @@ typedef struct demoContext_s {
 	int serverReliableAcknowledge;
 	int areabytes;  // of cl.snap
 	byte messageExtraByte;
+	qboolean newGamestate;
 #define ENTITY_POOL_SIZE 65536
 #define MAX_BUFFERED_SERVER_COMMANDS 4096
 	char			serverCommands[MAX_BUFFERED_SERVER_COMMANDS][MAX_STRING_CHARS];

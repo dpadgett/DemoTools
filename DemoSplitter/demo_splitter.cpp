@@ -391,9 +391,6 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 			}
 			MSG_ReadDeltaPlayerstate( msg, oldps, ps );
 			MSG_ReadDeltaPlayerstateForcedFields( msg, oldpsff, psff );
-			if ( oldps && oldps->commandTime == 765062 ) {
-				Com_Printf( "WTF6?\n" );
-			}
 			if ( ps->m_iVehicleNum )
 			{ //this means we must have written our vehicle's ps too
 				MSG_ReadDeltaPlayerstate( msg, oldvps, vps, qtrue );
@@ -614,10 +611,7 @@ void CL_ParseDemoEnded( msg_t* msg ) {
 void CL_ParseDemoGamestate( msg_t* msg ) {
 	int demoIdx = MSG_ReadByte( msg );
 	demoMetadata_t* demo = &cctx->demos[demoIdx];
-	if ( cctx->numGamestates >= (int) ARRAY_LEN( cctx->gamestates ) ) {
-		Com_Error( ERR_DROP, "CL_ParseDemoGamestate: MAX_GAMESTATES exceeded" );
-	}
-	gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[cctx->numGamestates++];
+	gamestateMetadata_t* gamestateMetadata = AllocCombinedGamestate( cctx );
 	demo->lastGamestate = gamestateMetadata;
 	gamestateMetadata->demoIdx = demoIdx;
 	gamestateMetadata->serverReliableAcknowledge = MSG_ReadLong( msg );
@@ -627,20 +621,21 @@ void CL_ParseDemoGamestate( msg_t* msg ) {
 	gamestateMetadata->messageExtraByte = MSG_ReadByte( msg );
 }
 
-static char configStringOverrides[MAX_GAMESTATE_CHARS * 64];
-static int configStringOverrideDataLen = 0;
 void CL_ParseDemoGamestateOverrides( msg_t* msg ) {
 	int demoIdx = MSG_ReadByte( msg );
 	demoMetadata_t* demo = &cctx->demos[demoIdx];
 	gamestateMetadata_t* gamestateMetadata = demo->lastGamestate;
-	gamestateMetadata->numConfigStringOverrides = MSG_ReadShort( msg );
-	for ( int i = 0; i < demo->lastGamestate->numConfigStringOverrides; i++ ) {
-		demo->lastGamestate->configStringOverrideIndex[i] = MSG_ReadShort( msg );
+	for ( int gIdx = 0; gIdx < cctx->numGamestates; gIdx++ ) {
+		if ( cctx->gamestates[gIdx]->demoIdx == demoIdx && !cctx->gamestates[gIdx]->overridesSent && cctx->gamestates[gIdx]->numConfigStringOverrides == 0 ) {
+			gamestateMetadata = cctx->gamestates[gIdx];
+			break;
+		}
+	}
+	int numOverrides = MSG_ReadShort( msg );
+	for ( int i = 0; i < numOverrides; i++ ) {
+		int idx = MSG_ReadShort( msg );
 		char *str = MSG_ReadString( msg );
-		int size = strlen( str );
-		Q_strncpyz( &configStringOverrides[configStringOverrideDataLen], str, sizeof( configStringOverrides ) - configStringOverrideDataLen );
-		demo->lastGamestate->configStringOverride[i] = &configStringOverrides[configStringOverrideDataLen];
-		configStringOverrideDataLen += size + 1;
+		AddConfigStringOverride( gamestateMetadata, idx, str );
 	}
 }
 
@@ -1046,7 +1041,6 @@ combinedDemoContext_t* cctx = &mergedCtx;
 int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 {
 	cl_shownet->integer = 0;
-	configStringOverrideDataLen = 0;
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
 
 	memset( &entry, 0, sizeof( demoEntry_t ) );
@@ -1085,7 +1079,9 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			Com_Printf( "Demo %d: client %d, filename %s, mtime %d\n", idx, demo->clientnum, demo->filename, demo->fileMtime );
 			free( demo->tail );
 		}
+		FreeCombinedGamestates( cctx );
 		free( cctx->demos );
+		cctx->demos = NULL;
 		FS_FCloseFile( entry.fp );
 		return 0;
 	}
@@ -1304,10 +1300,11 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		char bigConfigString[BIG_INFO_STRING];
 
 		for ( int idx = states[d].numHandledGamestates; idx < cctx->numGamestates; idx++, states[d].numHandledGamestates++ ) {
-			if ( cctx->gamestates[idx].demoIdx != d ) {
+			if ( cctx->gamestates[idx]->demoIdx != d ) {
 				continue;
 			}
-			gamestateMetadata_t* gamestateMetadata = &cctx->gamestates[idx];
+			gamestateMetadata_t* gamestateMetadata = cctx->gamestates[idx];
+			gamestateMetadata->overridesSent = qtrue;
 
 			ctx = entry.ctx;
 			// update any configstrings up to the gamestate's command sequence number
@@ -1345,7 +1342,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 				}
 			}
 
-			if ( framesSaved == 0 && gamestateMetadata->numConfigStringOverrides > 0 ) {
+			if ( gamestateMetadata->numConfigStringOverrides > 0 ) {
 				// handle any overridden configstrings
 				for ( int i = 0; i < gamestateMetadata->numConfigStringOverrides; i++ ) {
 					int num = gamestateMetadata->configStringOverrideIndex[i];
@@ -1669,7 +1666,9 @@ advanceLoop:
 		fclose( states[d].outFile );
 	}
 	free( states );
+	FreeCombinedGamestates( cctx );
 	free( cctx->demos );
+	cctx->demos = NULL;
 	FS_FCloseFile( entry.fp );
 
 	FILE *metaFile;
