@@ -410,10 +410,8 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 	SHOWNET( msg, va( "snapFlags %d", frame->snapFlags ) );
 
 	// send over the areabits
-	int len;
-	if ( ctx->areabytes > 0 ) {
-		len = ctx->areabytes;
-	} else {
+	int len = ctx->areabytes;
+	if ( len < 0 || len > (int)sizeof( frame->areamask ) ) {
 		len = sizeof( frame->areamask );
 	}
 	MSG_WriteByte (msg, len);

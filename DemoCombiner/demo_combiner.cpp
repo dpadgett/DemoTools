@@ -707,6 +707,7 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 					mergedCtx.curPlayerStateIdxMask ^= ( 1 << clientNum );
 					mergedCtx.lastServerMessageSequence[clientNum] = mergedCtx.serverMessageSequence[clientNum];
 					mergedCtx.serverMessageSequence[clientNum] = entryList[idx].ctx->clc.serverMessageSequence;
+					mergedCtx.areabytes[clientNum] = (byte) entryList[idx].ctx->areabytes;
 					Com_Memcpy( mergedCtx.areamask[clientNum], entryList[idx].ctx->cl.snap.areamask, entryList[idx].ctx->areabytes );
 					mergedCtx.ctx.areabytes = entryList[idx].ctx->areabytes;
 					mergedCtx.messageExtraByte[clientNum] = entryList[idx].ctx->messageExtraByte;

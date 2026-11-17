@@ -838,10 +838,35 @@ void writeMergedDeltaSnapshot( int firstServerCommand, FILE* fp, qboolean forceN
 	}
 
 	// send over the areabits
-	MSG_WriteByte( msg, ctx->areabytes );
+	int commonAreaBytes = -1;
+	bool areaBytesIdentical = true;
 	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
 		if ( cctx->matchedClients & ( 1 << i ) ) {
-			MSG_WriteData( msg, cctx->areamask[i], ctx->areabytes );
+			if ( commonAreaBytes == -1 ) {
+				commonAreaBytes = cctx->areabytes[i];
+			} else if ( commonAreaBytes != cctx->areabytes[i] ) {
+				areaBytesIdentical = false;
+				break;
+			}
+		}
+	}
+	if ( commonAreaBytes == -1 ) {
+		commonAreaBytes = 0;
+	}
+	if ( areaBytesIdentical ) {
+		MSG_WriteByte( msg, commonAreaBytes );
+		for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+			if ( cctx->matchedClients & ( 1 << i ) ) {
+				MSG_WriteData( msg, cctx->areamask[i], commonAreaBytes );
+			}
+		}
+	} else {
+		MSG_WriteByte( msg, 0x80 );
+		for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+			if ( cctx->matchedClients & ( 1 << i ) ) {
+				MSG_WriteByte( msg, cctx->areabytes[i] );
+				MSG_WriteData( msg, cctx->areamask[i], cctx->areabytes[i] );
+			}
 		}
 	}
 

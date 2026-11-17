@@ -377,17 +377,30 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 
 	// read areamask
 	len = MSG_ReadByte( msg );
-
-	if ( (unsigned) len > sizeof( newSnap.areamask ) )
-	{
-		Com_Error( ERR_DROP, "CL_ParseSnapshot: Invalid size %d for areamask", len );
-		return;
-	}
-
-	ctx->areabytes = len;
-	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
-		if ( cctx->matchedClients & ( 1 << i ) ) {
-			MSG_ReadData( msg, &cctx->areamask[i], len );
+	if ( len == 0x80 ) {
+		ctx->areabytes = 0;
+		for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+			if ( cctx->matchedClients & ( 1 << i ) ) {
+				int clen = MSG_ReadByte( msg );
+				if ( (unsigned) clen > sizeof( newSnap.areamask ) ) {
+					Com_Error( ERR_DROP, "CL_ParseSnapshot: Invalid size %d for areamask", clen );
+					return;
+				}
+				cctx->areabytes[i] = (byte) clen;
+				MSG_ReadData( msg, &cctx->areamask[i], clen );
+			}
+		}
+	} else {
+		if ( (unsigned) len > sizeof( newSnap.areamask ) ) {
+			Com_Error( ERR_DROP, "CL_ParseSnapshot: Invalid size %d for areamask", len );
+			return;
+		}
+		ctx->areabytes = len;
+		for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
+			if ( cctx->matchedClients & ( 1 << i ) ) {
+				cctx->areabytes[i] = (byte) len;
+				MSG_ReadData( msg, &cctx->areamask[i], len );
+			}
 		}
 	}
 
@@ -1659,8 +1672,8 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			int raIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 0 : 1;
 			firstServerCommand = cctx->serverReliableAcknowledge[raIdx][clientnum] + 1;
 		}
-		Com_Memcpy( snap.areamask, cctx->areamask[clientnum], ctx->areabytes );
-		entry.ctx->areabytes = ctx->areabytes;
+		entry.ctx->areabytes = cctx->areabytes[clientnum];
+		Com_Memcpy( snap.areamask, cctx->areamask[clientnum], entry.ctx->areabytes );
 
 		entry.ctx->messageExtraByte = cctx->messageExtraByte[clientnum];
 

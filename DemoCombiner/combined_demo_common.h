@@ -79,6 +79,7 @@ typedef struct combinedDemoContext_s {
 	int serverReliableAcknowledge[2][MAX_CLIENTS];
 	int lastServerMessageSequence[MAX_CLIENTS];
 	int serverMessageSequence[MAX_CLIENTS];
+	byte areabytes[MAX_CLIENTS];
 	byte areamask[MAX_CLIENTS][MAX_MAP_AREA_BYTES];
 	entityState_t parseEntitiesFloatForced[MAX_PARSE_ENTITIES];
 	int parseEntitiesNoDeltaForced[MAX_PARSE_ENTITIES];
