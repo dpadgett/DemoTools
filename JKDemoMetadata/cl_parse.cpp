@@ -417,6 +417,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 		if ( !old->valid ) {
 			// should never happen
 			Com_Printf ("Delta from invalid frame (not supposed to happen!).\n");
+			ctx->deltaFromInvalidFrame = qtrue;
 			while ( ( newSnap.deltaNum & PACKET_MASK ) != ( newSnap.messageNum & PACKET_MASK ) && !old->valid ) {
 				newSnap.deltaNum++;
 				old = &ctx->cl.snapshots[newSnap.deltaNum & PACKET_MASK];
@@ -565,6 +566,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 	ctx->serverReliableAcknowledge = ctx->clc.serverCommandSequence;
 	ctx->newGamestate = qfalse;
 	ctx->hadDownload = qfalse;
+	ctx->deltaFromInvalidFrame = qfalse;
 	qboolean firstServerCommandInMessage = qtrue;
 
 	//

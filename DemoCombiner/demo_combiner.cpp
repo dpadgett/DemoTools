@@ -101,6 +101,9 @@ msg_t *ReadNextMessage( demoEntry_t *demo ) {
 			if ( ctx->hadDownload ) {
 				Com_Error( ERR_DROP, "CL_ParseDownload: download in demo message" );
 			}
+			if ( ctx->deltaFromInvalidFrame ) {
+				Com_Error( ERR_DROP, "CL_ParseSnapshot: delta from invalid frame" );
+			}
 		} catch ( int ) {
 			// thrown code means it wasn't a fatal error, so we can still dump what we had
 			ctx->cl.newSnapshots = qfalse;
