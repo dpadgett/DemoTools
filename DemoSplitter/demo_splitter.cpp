@@ -1301,12 +1301,31 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		entry.ctx->clc.reliableSequence = entry.ctx->clc.reliableAcknowledge;
 
 		// figure out commands
+		int postGamestateCmdSeq = entry.ctx->clc.serverCommandSequence;
+		for ( int idx = states[d].numHandledGamestates; idx < cctx->numGamestates; idx++ ) {
+			if ( cctx->gamestates[idx]->demoIdx == d ) {
+				postGamestateCmdSeq = cctx->gamestates[idx]->serverCommandSequence;
+			}
+		}
+		int snapSra = postGamestateCmdSeq;
+		if ( ( cctx->deltasnap[clientnum] & 0x7f ) == 0 || ( cctx->deltasnap[clientnum] & 0x80 ) ) {
+			int sraIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 0 : 1;
+			snapSra = cctx->serverReliableAcknowledge[sraIdx][clientnum];
+		}
+		if ( entry.ctx->clc.serverCommandSequence == postGamestateCmdSeq && snapSra > postGamestateCmdSeq ) {
+			entry.ctx->clc.serverCommandSequence = snapSra;
+			entry.ctx->clc.lastExecutedServerCommand = snapSra + 1;
+		}
 		int firstServerCommand = entry.ctx->clc.serverCommandSequence + 1;
 		for ( int commandNum = entry.firstServerCommand; commandNum <= ctx->clc.serverCommandSequence; commandNum++ ) {
 			char *command = ctx->serverCommands[ commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 ) ];
 			int bitmask = cctx->serverCommandBitmask[commandNum & ( MAX_BUFFERED_SERVER_COMMANDS - 1 )];
 			if ( !( bitmask & ( 1 << clientnum ) ) ) {
 				continue;
+			}
+			if ( entry.ctx->clc.serverCommandSequence == postGamestateCmdSeq && snapSra > postGamestateCmdSeq ) {
+				entry.ctx->clc.serverCommandSequence = snapSra;
+				entry.ctx->clc.lastExecutedServerCommand = snapSra + 1;
 			}
 			entry.ctx->clc.serverCommandSequence++;
 			entry.ctx->clc.lastExecutedServerCommand++;
