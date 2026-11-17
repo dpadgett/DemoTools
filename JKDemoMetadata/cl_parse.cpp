@@ -502,6 +502,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	CopyClSnapshot( &ctx->cl.snap, &newSnap );
 	// save the frame off in the backup array for later delta comparisons
 	CopyClSnapshot( &ctx->cl.snapshots[ctx->cl.snap.messageNum & PACKET_MASK], &ctx->cl.snap );
+	ctx->snapLastFrame = !deltaNum ? 0 : (byte)( newSnap.messageNum - newSnap.deltaNum );
 	ctx->clc.netchan.unsentLength = msg->cursize;
 
 	if (cl_shownet->integer == 3) {

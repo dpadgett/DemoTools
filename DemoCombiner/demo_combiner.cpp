@@ -634,11 +634,10 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 				if ( !( mergedCtx.matchedClients & ( 1 << clientNum ) ) ) {
 					mergedCtx.matchedClients |= 1 << clientNum;
 					int deltaNum = entryList[idx].ctx->cl.snap.deltaNum;
-					int messageNum = entryList[idx].ctx->cl.snap.messageNum;
-					mergedCtx.deltasnap[clientNum] = deltaNum == -1 ? 0 : messageNum - deltaNum;
-					if ( deltaNum != -1 && entryList[idx].ctx->cl.snapshots[deltaNum & PACKET_MASK].serverCommandNum != entryList[idx].ctx->serverReliableAcknowledge ) {
-						mergedCtx.deltasnap[clientNum] |= 0x80;
-					}
+					int rawLastFrame = entryList[idx].ctx->snapLastFrame;
+					qboolean needSra = ( deltaNum <= 0
+						|| entryList[idx].ctx->cl.snapshots[deltaNum & PACKET_MASK].serverCommandNum != entryList[idx].ctx->serverReliableAcknowledge ) ? qtrue : qfalse;
+					mergedCtx.deltasnap[clientNum] = rawLastFrame | ( needSra ? 0x100 : 0 );
 					int psIdx = mergedCtx.curPlayerStateIdxMask & ( 1 << clientNum ) ? 1 : 0;
 					mergedCtx.playerStates[psIdx][clientNum] = entryList[idx].ctx->cl.snap.ps;
 					const playerState_t &srcPsff = entryList[idx].ctx->playerStateForcedFields[entryList[idx].ctx->cl.snap.messageNum & PACKET_MASK];

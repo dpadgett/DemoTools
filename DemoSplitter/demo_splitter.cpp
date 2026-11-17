@@ -277,9 +277,14 @@ void CL_ParseMergedSnapshot( msg_t* msg ) {
 	// read original delta frame for each match
 	for ( int i = 0; ( 1 << i ) <= cctx->matchedClients; i++ ) {
 		if ( cctx->matchedClients & ( 1 << i ) ) {
-			int deltaNum = MSG_ReadByte( msg );
-			cctx->deltasnap[i] = deltaNum;
-			if ( deltaNum == 0 || ( deltaNum & 0x80 ) ) {
+			int b = MSG_ReadByte( msg );
+			int rawLastFrame = b & 0x7f;
+			qboolean needSra = ( b == 0 || ( b & 0x80 ) ) ? qtrue : qfalse;
+			if ( rawLastFrame == 0x7f ) {
+				rawLastFrame = MSG_ReadByte( msg );
+			}
+			cctx->deltasnap[i] = rawLastFrame | ( needSra ? 0x100 : 0 );
+			if ( needSra ) {
 				int raIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << i ) ? 0 : 1;
 				cctx->serverReliableAcknowledge[raIdx][i] = MSG_ReadLong( msg );
 			}
@@ -1308,7 +1313,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			}
 		}
 		int snapSra = postGamestateCmdSeq;
-		if ( ( cctx->deltasnap[clientnum] & 0x7f ) == 0 || ( cctx->deltasnap[clientnum] & 0x80 ) ) {
+		if ( ( cctx->deltasnap[clientnum] & 0xff ) == 0 || ( cctx->deltasnap[clientnum] & 0x100 ) ) {
 			int sraIdx = cctx->reliableAcknowledgeIdxMask & ( 1 << clientnum ) ? 0 : 1;
 			snapSra = cctx->serverReliableAcknowledge[sraIdx][clientnum];
 		}
@@ -1563,8 +1568,11 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		snap.serverCommandNum = entry.ctx->clc.serverCommandSequence;
 		snap.valid = qtrue;
 		snap.serverTime = ctx->cl.snap.serverTime;
-		snap.deltaNum = ( cctx->deltasnap[clientnum] & 0x7f ) == 0 ? -1 : snap.messageNum - ( cctx->deltasnap[clientnum] & 0x7f );
-		if ( snap.deltaNum != -1 && !( cctx->deltasnap[clientnum] & 0x80 ) ) {
+		int rawLastFrame = cctx->deltasnap[clientnum] & 0xff;
+		qboolean needSra = ( cctx->deltasnap[clientnum] & 0x100 ) ? qtrue : qfalse;
+		entry.ctx->snapLastFrame = (byte) rawLastFrame;
+		snap.deltaNum = rawLastFrame == 0 ? -1 : snap.messageNum - rawLastFrame;
+		if ( snap.deltaNum > 0 && !needSra ) {
 			const clSnapshot_t &deltaSnap = entry.ctx->cl.snapshots[snap.deltaNum & PACKET_MASK];
 			firstServerCommand = deltaSnap.serverCommandNum + 1;
 		} else {

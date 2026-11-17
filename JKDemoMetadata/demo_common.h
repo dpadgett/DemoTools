@@ -9,6 +9,7 @@ typedef struct demoContext_s {
 	int serverReliableAcknowledge;
 	int areabytes;  // of cl.snap
 	byte messageExtraByte;
+	byte snapLastFrame;
 	qboolean newGamestate;
 	qboolean hadDownload;
 #define ENTITY_POOL_SIZE 65536

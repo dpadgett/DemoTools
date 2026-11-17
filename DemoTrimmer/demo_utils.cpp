@@ -327,30 +327,35 @@ void writeDeltaSnapshot( int firstServerCommand, FILE *fp, qboolean forceNonDelt
 
 	// this is the snapshot we are creating
 	frame = &ctx->cl.snap;
-	qboolean nonDelta = ctx->cl.snap.deltaNum == -1 ? qtrue : qfalse;
-	if ( ctx->cl.snap.messageNum > 0 && !forceNonDelta && !nonDelta ) {
-		lastframe = 1;
-		if ( ctx->cl.snap.deltaNum > 0 && ctx->cl.snap.deltaNum >= ctx->cl.snap.messageNum - PACKET_BACKUP ) {
-			lastframe = ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum;
-		}
-		oldframe = &ctx->cl.snapshots[(ctx->cl.snap.messageNum - lastframe) & PACKET_MASK];
-		if ( !oldframe->valid ) {
-			// not yet set
-			lastframe = 0;
+	qboolean nonDelta = ( ctx->cl.snap.deltaNum == -1 && ctx->snapLastFrame == 0 ) ? qtrue : qfalse;
+	if ( ( ctx->cl.snap.messageNum > 0 || ctx->snapLastFrame > 0 ) && !forceNonDelta && !nonDelta ) {
+		if ( ctx->cl.snap.deltaNum <= 0 ) {
+			lastframe = ctx->snapLastFrame ? ctx->snapLastFrame : ( ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum );
 			oldframe = NULL;
-		} else if ( lastframe > 1 && ctx->clc.netchan.unsentLength >= 1300 ) {
-			const clSnapshot_t &prevSnap = ctx->cl.snapshots[( ctx->cl.snap.messageNum - 1 ) & PACKET_MASK];
-			if ( prevSnap.valid && prevSnap.messageNum == ctx->cl.snap.messageNum - 1 ) {
-				qboolean isDisconnectSnap = ( ctx->cl.snap.serverCommandNum > prevSnap.serverCommandNum &&
-					!Q_strncmp( ctx->clc.serverCommands[ctx->cl.snap.serverCommandNum & ( MAX_RELIABLE_COMMANDS - 1 )], "disconnect", 10 ) ) ? qtrue : qfalse;
-				if ( ( prevSnap.serverTime == ctx->cl.snap.serverTime && prevSnap.deltaNum == ctx->cl.snap.deltaNum ) ||
-					isDisconnectSnap ) {
-					lastframe--;
+		} else {
+			lastframe = 1;
+			if ( ctx->cl.snap.deltaNum > 0 && ctx->cl.snap.deltaNum >= ctx->cl.snap.messageNum - PACKET_BACKUP ) {
+				lastframe = ctx->cl.snap.messageNum - ctx->cl.snap.deltaNum;
+			}
+			oldframe = &ctx->cl.snapshots[(ctx->cl.snap.messageNum - lastframe) & PACKET_MASK];
+			if ( !oldframe->valid ) {
+				// not yet set
+				lastframe = 0;
+				oldframe = NULL;
+			} else if ( lastframe > 1 && ctx->clc.netchan.unsentLength >= 1300 ) {
+				const clSnapshot_t &prevSnap = ctx->cl.snapshots[( ctx->cl.snap.messageNum - 1 ) & PACKET_MASK];
+				if ( prevSnap.valid && prevSnap.messageNum == ctx->cl.snap.messageNum - 1 ) {
+					qboolean isDisconnectSnap = ( ctx->cl.snap.serverCommandNum > prevSnap.serverCommandNum &&
+						!Q_strncmp( ctx->clc.serverCommands[ctx->cl.snap.serverCommandNum & ( MAX_RELIABLE_COMMANDS - 1 )], "disconnect", 10 ) ) ? qtrue : qfalse;
+					if ( ( prevSnap.serverTime == ctx->cl.snap.serverTime && prevSnap.deltaNum == ctx->cl.snap.deltaNum ) ||
+						isDisconnectSnap ) {
+						lastframe--;
+					}
 				}
 			}
 		}
 	} else {
-		lastframe = 0;
+		lastframe = ( ctx->cl.snap.deltaNum <= 0 && ctx->snapLastFrame > 0 ) ? ctx->snapLastFrame : 0;
 		oldframe = NULL;
 	}
 
