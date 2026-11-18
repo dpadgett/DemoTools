@@ -61,10 +61,20 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign) {
 
 static FILE *fileHandles[1024];
 static char fileNames[1024][MAX_OSPATH];
-static int fileHandleCount = 1;
 static long bytesRead[1024];
 long QDECL FS_FOpenFileRead( const char *filename, fileHandle_t *fileHandle, qboolean uniqueFILE) {
-	*fileHandle = fileHandleCount++;
+	int slot = 0;
+	for ( int h = 1; h < 1024; h++ ) {
+		if ( fileHandles[h] == NULL ) {
+			slot = h;
+			break;
+		}
+	}
+	if ( slot == 0 ) {
+		*fileHandle = 0;
+		return -1;
+	}
+	*fileHandle = slot;
 	if ( !Q_strncmp( filename, "-", 2 ) ) {
 #ifdef WIN32
 		setmode(fileno(stdin), O_BINARY);

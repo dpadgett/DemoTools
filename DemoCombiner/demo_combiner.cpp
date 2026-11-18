@@ -312,6 +312,10 @@ combinedDemoContext_t* cctx = &mergedCtx;
 // bitmask of which clients had this ent in cur/prev snaps.
 int RunMerge(char **demos, int numDemos, char *outFilename)
 {
+	if ( numDemos < 1 || numDemos > 255 ) {
+		printf( "Invalid demo count %d (must be between 1 and 255)\n", numDemos );
+		return -1;
+	}
 	cl_shownet->integer = 0;
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
 
@@ -327,6 +331,29 @@ int RunMerge(char **demos, int numDemos, char *outFilename)
 			struct stat result;
 			if ( stat( demos[idx], &result ) == 0 ) {
 				mergedCtx.demos[idx].fileMtime = result.st_mtime;
+			}
+			{
+				FILE *crcFp = fopen( demos[idx], "rb" );
+				if ( !crcFp ) {
+					printf( "Failed to open file %s\n", demos[idx] );
+					return -1;
+				}
+				uint32_t crc = 0;
+				uint64_t totalBytes = 0;
+				byte crcBuf[65536];
+				size_t nRead;
+				while ( ( nRead = fread( crcBuf, 1, sizeof( crcBuf ), crcFp ) ) > 0 ) {
+					crc = DemoCrc32Update( crc, crcBuf, nRead );
+					totalBytes += nRead;
+				}
+				qboolean crcReadErr = ferror( crcFp ) ? qtrue : qfalse;
+				fclose( crcFp );
+				if ( crcReadErr || totalBytes > 0xFFFFFFFFULL ) {
+					printf( "Failed to hash file %s\n", demos[idx] );
+					return -1;
+				}
+				mergedCtx.demos[idx].fileSize = (uint32_t)totalBytes;
+				mergedCtx.demos[idx].fileCrc = crc;
 			}
 			entryList[idx].metadata = &mergedCtx.demos[idx];
 			FS_FOpenFileRead( entryList[idx].filename, &entryList[idx].fp, qfalse );
@@ -1148,7 +1175,14 @@ advanceLoop:
 	FreeCombinedGamestates( cctx );
 	free( cctx->demos );
 	cctx->demos = NULL;
-	fclose( outFile );
+	qboolean ioError = ( ferror( outFile ) || fflush( outFile ) != 0 ) ? qtrue : qfalse;
+	if ( outFile != stdout && fclose( outFile ) != 0 ) {
+		ioError = qtrue;
+	}
+	if ( ioError ) {
+		printf( "I/O error while writing combined output file\n" );
+		return -1;
+	}
 
 	FILE *metaFile;
 	if ( Q_strncmp( outFilename, "-", 2 ) ) {
@@ -1159,7 +1193,9 @@ advanceLoop:
 	}
 	if ( metaFile ) {
 		json_dumpf( missingFrames, metaFile, JSON_INDENT(2) | JSON_PRESERVE_ORDER );
-		fclose( metaFile );
+		if ( metaFile != stdout ) {
+			fclose( metaFile );
+		}
 	}
 
 	//system("PAUSE");
@@ -1183,5 +1219,5 @@ int main(int argc, char** argv)
 	char **demos = &argv[1];
 	char *outFile = argv[argc - 1];
 	cl_shownet->integer = 3;
-	RunMerge( demos, numDemos, outFile );
+	return RunMerge( demos, numDemos, outFile ) == 0 ? 0 : 1;
 }

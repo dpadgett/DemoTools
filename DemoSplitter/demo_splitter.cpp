@@ -640,8 +640,10 @@ void CL_ParseDemoMetadata( msg_t* msg ) {
 
 	for ( int idx = startIdx; idx < cctx->numDemos; idx++ ) {
 		demoMetadata_t* demo = &cctx->demos[idx];
-		Q_strncpyz( demo->filename, MSG_ReadString( msg ), sizeof( demo->filename ) );
+		Q_strncpyz( demo->filename, MSG_ReadRawString( msg ), sizeof( demo->filename ) );
 		demo->fileMtime = MSG_ReadLong( msg );
+		demo->fileSize = (uint32_t)MSG_ReadLong( msg );
+		demo->fileCrc = (uint32_t)MSG_ReadLong( msg );
 		demo->clientnum = MSG_ReadByte( msg );
 		demo->firstFrameTime = MSG_ReadLong( msg );
 	}
@@ -1112,12 +1114,29 @@ typedef struct {
 	demoContext_t *ctx;
 	FILE *outFile;
 	char outPath[MAX_OSPATH];
+	qboolean active;
+	uint64_t writtenBytes;
+	uint32_t writtenCrc;
 	int framesSaved;
 	int serverCommandOffset;
 	int numHandledGamestates;
 	qboolean seqInitialized;
 	qboolean done;
 } splitDemoState_t;
+
+static void SplitOutputHook( const void *data, size_t len, void *userData ) {
+	splitDemoState_t *st = (splitDemoState_t *)userData;
+	if ( st ) {
+		st->writtenCrc = DemoCrc32Update( st->writtenCrc, data, len );
+		st->writtenBytes += len;
+	}
+}
+
+static void WriteDemoBytes( splitDemoState_t *st, const void *data, size_t len ) {
+	SetDemoOutputHook( SplitOutputHook, st );
+	DemoOutputWrite( data, len, st->outFile );
+	SetDemoOutputHook( NULL, NULL );
+}
 
 static const char *SafeDemoBasename( const char *name ) {
 	if ( !name || !*name ) {
@@ -1142,8 +1161,8 @@ combinedDemoContext_t* cctx = &mergedCtx;
 // bitmask of which clients had this ent in cur/prev snaps.
 int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 {
-	if ( demoIdx < -3 ) {
-		printf( "Invalid demo index %d (expected >= 0, -1, -2, or -3)\n", demoIdx );
+	if ( demoIdx < -4 ) {
+		printf( "Invalid demo index %d (expected >= 0, -1, -2, -3, or -4)\n", demoIdx );
 		return -1;
 	}
 	cl_shownet->integer = 0;
@@ -1182,7 +1201,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		}
 		for ( int idx = 0; idx < cctx->numDemos; idx++ ) {
 			demoMetadata_t *demo = &cctx->demos[idx];
-			Com_Printf( "Demo %d: client %d, filename %s, mtime %d\n", idx, demo->clientnum, demo->filename, demo->fileMtime );
+			Com_Printf( "Demo %d: client %d, filename %s, mtime %d, size %u, crc %08x\n", idx, demo->clientnum, demo->filename, demo->fileMtime, demo->fileSize, demo->fileCrc );
 			free( demo->tail );
 		}
 		FreeCombinedGamestates( cctx );
@@ -1207,19 +1226,25 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		states = (splitDemoState_t *) realloc( states, cctx->numDemos * sizeof( splitDemoState_t ) );
 		Com_Memset( &states[numInitializedDemos], 0, ( cctx->numDemos - numInitializedDemos ) * sizeof( splitDemoState_t ) );
 		for ( int d = numInitializedDemos; d < cctx->numDemos; d++ ) {
-			if ( demoIdx != -2 && demoIdx != -3 && d != demoIdx ) {
+			if ( demoIdx != -2 && demoIdx != -3 && demoIdx != -4 && d != demoIdx ) {
 				states[d].done = qtrue;
 				continue;
 			}
 			demoMetadata_t* demo = &cctx->demos[d];
 			Com_Printf( "Found demo: %s\n", demo->filename );
 			int clientnum = demo->clientnum;
+			states[d].active = qtrue;
 			states[d].ctx = (demoContext_t *) calloc( 1, sizeof( demoContext_t ) );
 			states[d].ctx->clc.clientNum = clientnum;
 			states[d].ctx->cl.gameState = mergedCtx.ctx.cl.gameState;
 			memcpy( states[d].ctx->cl.entityBaselines, mergedCtx.ctx.cl.entityBaselines, sizeof( mergedCtx.ctx.cl.entityBaselines ) );
 			memcpy( states[d].ctx->entityBaselinesFloatForced, mergedCtx.ctx.entityBaselinesFloatForced, sizeof( mergedCtx.ctx.entityBaselinesFloatForced ) );
 			states[d].ctx->clc.checksumFeed = mergedCtx.ctx.clc.checksumFeed;
+
+			if ( demoIdx == -4 ) {
+				states[d].outFile = NULL;
+				continue;
+			}
 
 			const char *curOutFilename = outFilename;
 			char splitPathBuf[MAX_OSPATH];
@@ -1305,7 +1330,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		if ( demo->eos || demo->firstFrameTime == -1 ) {
 			if ( demo->tailLen != 0 ) {
 				if ( demo->tailLen > 0 && demo->tail != NULL ) {
-					fwrite( demo->tail, demo->tailLen, 1, states[d].outFile );
+					WriteDemoBytes( &states[d], demo->tail, (size_t)demo->tailLen );
 				}
 				free( demo->tail );
 				demo->tail = NULL;
@@ -1529,7 +1554,9 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			ctx->clc.serverMessageSequence = gamestateMetadata->serverMessageSequence + 1;
 			ctx->clc.reliableAcknowledge = gamestateMetadata->reliableAcknowledge;
 			ctx->clc.reliableSequence = ctx->clc.reliableAcknowledge;
+			SetDemoOutputHook( SplitOutputHook, &states[d] );
 			writeDemoHeaderWithServerCommands( outFile, gamestateMetadata->serverReliableAcknowledge, gamestateMetadata->serverCommandSequence, serverCommandOffset );
+			SetDemoOutputHook( NULL, NULL );
 			ctx->clc.serverMessageSequence = cctx->serverMessageSequence[clientnum];
 			ctx->clc.reliableAcknowledge = cctx->reliableAcknowledge[raIdx ^ 1][clientnum];
 			ctx->clc.reliableSequence = ctx->clc.reliableAcknowledge;
@@ -1745,6 +1772,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		entry.ctx->messageExtraByte = cctx->messageExtraByte[clientnum];
 
 		qboolean hadPrevFrame = framesSaved > 0 ? qtrue : qfalse;
+		SetDemoOutputHook( SplitOutputHook, &states[d] );
 		if ( framesSaved > 0 ) {
 			ctx = entry.ctx;
 			writeDeltaSnapshot( firstServerCommand, outFile, qfalse, serverCommandOffset );
@@ -1757,6 +1785,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 			// copy rest
 			framesSaved = 1;
 		}
+		SetDemoOutputHook( NULL, NULL );
 
 		if ( hadPrevFrame ) {
 			int oldMessageNum = prevMessageNum + 1;
@@ -1834,7 +1863,7 @@ advanceLoop:
 				if ( !states[d].done ) {
 					if ( demo->tailLen != 0 ) {
 						if ( demo->tailLen > 0 && demo->tail != NULL ) {  // < 0 signals no tail, == 0 signals -1 -1 tail.
-							fwrite( demo->tail, demo->tailLen, 1, states[d].outFile );
+							WriteDemoBytes( &states[d], demo->tail, (size_t)demo->tailLen );
 						}
 						free( demo->tail );
 						demo->tail = NULL;
@@ -1865,19 +1894,36 @@ advanceLoop:
 		Com_Error( ERR_FATAL, "Demo %d exceeds numDemos %d!\n", demoIdx, cctx->numDemos );
 	}
 
+	qboolean ioError = qfalse;
+	qboolean verifyError = qfalse;
 	for ( int d = 0; d < numInitializedDemos; d++ ) {
-		if ( !states[d].outFile ) {
+		if ( !states[d].active ) {
 			continue;
 		}
 		demoMetadata_t *demo = &cctx->demos[d];
 		if ( demo->tailLen == 0 ) {
 			int len = -1;
-			fwrite( &len, 4, 1, states[d].outFile );
-			fwrite( &len, 4, 1, states[d].outFile );
+			WriteDemoBytes( &states[d], &len, 4 );
+			WriteDemoBytes( &states[d], &len, 4 );
 		}
 		free( states[d].ctx );
-		fclose( states[d].outFile );
-		if ( states[d].outPath[0] && demo->fileMtime != 0 ) {
+		if ( states[d].outFile ) {
+			if ( ferror( states[d].outFile ) || fflush( states[d].outFile ) != 0 ) {
+				ioError = qtrue;
+			}
+			if ( states[d].outFile != stdout ) {
+				if ( fclose( states[d].outFile ) != 0 ) {
+					ioError = qtrue;
+				}
+			}
+		}
+		if ( states[d].writtenBytes != (uint64_t)demo->fileSize || states[d].writtenCrc != demo->fileCrc ) {
+			printf( "CRC/size mismatch for demo %d (%s): expected size=%u crc=%08x, got size=%llu crc=%08x\n",
+				d, demo->filename, demo->fileSize, demo->fileCrc,
+				(unsigned long long)states[d].writtenBytes, states[d].writtenCrc );
+			verifyError = qtrue;
+		}
+		if ( !ioError && !verifyError && states[d].outPath[0] && demo->fileMtime != 0 ) {
 			struct utimbuf times;
 			struct stat st;
 			time_t mtime = (time_t)(unsigned int)demo->fileMtime;
@@ -1892,8 +1938,16 @@ advanceLoop:
 	cctx->demos = NULL;
 	FS_FCloseFile( entry.fp );
 
+	if ( ioError ) {
+		printf( "I/O error while writing split output file\n" );
+		return -1;
+	}
+	if ( verifyError ) {
+		return -1;
+	}
+
 	FILE *metaFile;
-	if ( Q_strncmp( outFilename, "-", 2 ) ) {
+	if ( demoIdx != -4 && Q_strncmp( outFilename, "-", 2 ) ) {
 		metaFile = stdout;
 	} else {
 		//metaFile = fopen( va( "%s.dm_meta", filename ), "wb" );
@@ -1901,7 +1955,9 @@ advanceLoop:
 	}
 	if ( metaFile ) {
 		json_dumpf( missingFrames, metaFile, JSON_INDENT(2) | JSON_PRESERVE_ORDER );
-		fclose( metaFile );
+		if ( metaFile != stdout ) {
+			fclose( metaFile );
+		}
 	}
 
 	//system("PAUSE");
@@ -1913,11 +1969,12 @@ int main(int argc, char** argv)
 {
 	if ( argc < 3 ) {
 		printf( "No file specified.\n"
-				"Usage: \"%s\" infile.dm_26 <demoIdx|-1|-2|-3> [outfile_or_dir]\n"
+				"Usage: \"%s\" infile.dm_26 <demoIdx|-1|-2|-3|-4> [outfile_or_dir]\n"
 				"  demoIdx >= 0 : extract single demo by index (default filename from metadata)\n"
-				"  -1           : list embedded demo metadata\n"
+				"  -1           : list embedded demo metadata (client, filename, mtime, size, crc)\n"
 				"  -2           : extract all demos as <dir>/split_<idx>.dm_26\n"
-				"  -3           : extract all demos as <dir>/<original_filename>\n", argv[0] );
+				"  -3           : extract all demos as <dir>/<original_filename>\n"
+				"  -4           : verify all demos in memory (size + CRC32, no files written)\n", argv[0] );
 		//system( "pause" );
 		return -1;
 	}

@@ -3,6 +3,7 @@
 #include "deps.h"
 #include "client/client.h"
 #include "demo_common.h"
+#include "demo_utils.h"
 
 #ifdef WIN32
 #include <io.h>
@@ -94,6 +95,26 @@ void writeDemoHeaderToMsg(msg_t *msg, int serverCommandSequence) {
 	}
 }
 
+static demoOutputHook_t g_demoOutputHook = NULL;
+static void *g_demoOutputUserData = NULL;
+
+void SetDemoOutputHook( demoOutputHook_t hook, void *userData ) {
+	g_demoOutputHook = hook;
+	g_demoOutputUserData = userData;
+}
+
+void DemoOutputWrite( const void *data, size_t len, FILE *fp ) {
+	if ( len == 0 ) {
+		return;
+	}
+	if ( g_demoOutputHook ) {
+		g_demoOutputHook( data, len, g_demoOutputUserData );
+	}
+	if ( fp ) {
+		fwrite( data, 1, len, fp );
+	}
+}
+
 void writeDemoHeader( FILE* fp ) {
 	byte		bufData[MAX_MSGLEN];
 	msg_t	buf;
@@ -114,11 +135,11 @@ void writeDemoHeader( FILE* fp ) {
 
 	// write it to the demo file
 	len = LittleLong( ctx->clc.serverMessageSequence - 1 );
-	fwrite( &len, 1, 4, fp );
+	DemoOutputWrite( &len, 4, fp );
 
 	len = LittleLong( buf.cursize );
-	fwrite( &len, 4, 1, fp );
-	fwrite( buf.data, 1, buf.cursize, fp );
+	DemoOutputWrite( &len, 4, fp );
+	DemoOutputWrite( buf.data, buf.cursize, fp );
 
 	// the rest of the demo file will be copied from net messages
 }
@@ -166,11 +187,11 @@ void writeDemoHeaderWithServerCommands( FILE* fp, int reliableAcknowledge, int s
 
 	// write it to the demo file
 	len = LittleLong( ctx->clc.serverMessageSequence - 1 );
-	fwrite( &len, 1, 4, fp );
+	DemoOutputWrite( &len, 4, fp );
 
 	len = LittleLong( buf.cursize );
-	fwrite( &len, 4, 1, fp );
-	fwrite( buf.data, 1, buf.cursize, fp );
+	DemoOutputWrite( &len, 4, fp );
+	DemoOutputWrite( buf.data, buf.cursize, fp );
 
 	// the rest of the demo file will be copied from net messages
 }
@@ -292,7 +313,7 @@ void CL_WriteDemoMessage ( msg_t *msg, int headerBytes, FILE *fp ) {
 	// write the packet sequence
 	len = ctx->clc.serverMessageSequence;
 	swlen = LittleLong( len );
-	fwrite (&swlen, 4, 1, fp);
+	DemoOutputWrite( &swlen, 4, fp );
 
 	wroteBytes += 4;
 
@@ -300,11 +321,11 @@ void CL_WriteDemoMessage ( msg_t *msg, int headerBytes, FILE *fp ) {
 	len = msg->cursize - headerBytes;
 	ctx->clc.netchan.unsentLength = len;
 	swlen = LittleLong(len);
-	fwrite (&swlen, 4, 1, fp);
+	DemoOutputWrite( &swlen, 4, fp );
 
 	wroteBytes += 4;
 
-	fwrite ( msg->data + headerBytes, 1, len, fp );
+	DemoOutputWrite( msg->data + headerBytes, len, fp );
 
 	wroteBytes += len;
 }

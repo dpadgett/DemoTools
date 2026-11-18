@@ -130,6 +130,8 @@ void writeMergedGamestateData( FILE* fp ) {
 			demoMetadata_t* demo = &cctx->demos[idx];
 			MSG_WriteString( &buf, demo->filename );
 			MSG_WriteLong( &buf, demo->fileMtime );
+			MSG_WriteLong( &buf, (int)demo->fileSize );
+			MSG_WriteLong( &buf, (int)demo->fileCrc );
 			MSG_WriteByte( &buf, demo->clientnum );
 			MSG_WriteLong( &buf, demo->firstFrameTime );
 		}
@@ -189,6 +191,8 @@ void writeMergedDemoHeader( FILE* fp ) {
 			demoMetadata_t* demo = &cctx->demos[idx];
 			MSG_WriteString( &buf, demo->filename );
 			MSG_WriteLong( &buf, demo->fileMtime );
+			MSG_WriteLong( &buf, (int)demo->fileSize );
+			MSG_WriteLong( &buf, (int)demo->fileCrc );
 			MSG_WriteByte( &buf, demo->clientnum );
 			MSG_WriteLong( &buf, demo->firstFrameTime );
 			//MSG_WriteLong( &buf, demo->initialServerReliableAcknowledge );
