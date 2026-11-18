@@ -14,6 +14,17 @@
 #include <fcntl.h>
 #endif
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#ifdef WIN32
+#include <sys/utime.h>
+#define stat _stat
+#define utime _utime
+#define utimbuf _utimbuf
+#else
+#include <utime.h>
+#endif
+
 typedef struct {
 	char filename[MAX_OSPATH];
 	fileHandle_t fp;
@@ -1100,6 +1111,7 @@ extern netField_t entityStateFields[132];
 typedef struct {
 	demoContext_t *ctx;
 	FILE *outFile;
+	char outPath[MAX_OSPATH];
 	int framesSaved;
 	int serverCommandOffset;
 	int numHandledGamestates;
@@ -1107,11 +1119,33 @@ typedef struct {
 	qboolean done;
 } splitDemoState_t;
 
+static const char *SafeDemoBasename( const char *name ) {
+	if ( !name || !*name ) {
+		return NULL;
+	}
+	const char *slash = strrchr( name, '/' );
+	if ( slash ) {
+		name = slash + 1;
+	}
+	const char *bslash = strrchr( name, '\\' );
+	if ( bslash ) {
+		name = bslash + 1;
+	}
+	if ( !*name || !strcmp( name, "." ) || !strcmp( name, ".." ) ) {
+		return NULL;
+	}
+	return name;
+}
+
 static combinedDemoContext_t mergedCtx;
 combinedDemoContext_t* cctx = &mergedCtx;
 // bitmask of which clients had this ent in cur/prev snaps.
 int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 {
+	if ( demoIdx < -3 ) {
+		printf( "Invalid demo index %d (expected >= 0, -1, -2, or -3)\n", demoIdx );
+		return -1;
+	}
 	cl_shownet->integer = 0;
 	//printf( "JKDemoMetadata v" VERSION " loaded\n");
 
@@ -1173,7 +1207,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 		states = (splitDemoState_t *) realloc( states, cctx->numDemos * sizeof( splitDemoState_t ) );
 		Com_Memset( &states[numInitializedDemos], 0, ( cctx->numDemos - numInitializedDemos ) * sizeof( splitDemoState_t ) );
 		for ( int d = numInitializedDemos; d < cctx->numDemos; d++ ) {
-			if ( demoIdx != -2 && d != demoIdx ) {
+			if ( demoIdx != -2 && demoIdx != -3 && d != demoIdx ) {
 				states[d].done = qtrue;
 				continue;
 			}
@@ -1193,8 +1227,40 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 				const char *dir = ( outFilename && *outFilename ) ? outFilename : ".";
 				Com_sprintf( splitPathBuf, sizeof( splitPathBuf ), "%s/split_%d.dm_26", dir, d );
 				curOutFilename = splitPathBuf;
+			} else if ( demoIdx == -3 ) {
+				const char *dir = ( outFilename && *outFilename ) ? outFilename : ".";
+				const char *base = SafeDemoBasename( demo->filename );
+				if ( base ) {
+					Com_sprintf( splitPathBuf, sizeof( splitPathBuf ), "%s/%s", dir, base );
+					for ( int suffix = 1; ; suffix++ ) {
+						qboolean collision = qfalse;
+						for ( int prev = 0; prev < d; prev++ ) {
+							if ( states[prev].outPath[0] && !strcmp( states[prev].outPath, splitPathBuf ) ) {
+								collision = qtrue;
+								break;
+							}
+						}
+						if ( !collision ) {
+							if ( suffix > 1 ) {
+								printf( "Warning: duplicate filename '%s', writing demo %d to '%s'\n", base, d, splitPathBuf );
+							}
+							break;
+						}
+						const char *ext = strrchr( base, '.' );
+						if ( ext && ext > base ) {
+							int stemLen = (int)( ext - base );
+							Com_sprintf( splitPathBuf, sizeof( splitPathBuf ), "%s/%.*s_%d%s", dir, stemLen, base, suffix, ext );
+						} else {
+							Com_sprintf( splitPathBuf, sizeof( splitPathBuf ), "%s/%s_%d", dir, base, suffix );
+						}
+					}
+				} else {
+					Com_sprintf( splitPathBuf, sizeof( splitPathBuf ), "%s/split_%d.dm_26", dir, d );
+				}
+				curOutFilename = splitPathBuf;
 			} else if ( !curOutFilename || !*curOutFilename ) {
-				curOutFilename = demo->filename;
+				const char *base = SafeDemoBasename( demo->filename );
+				curOutFilename = base ? base : demo->filename;
 			}
 
 			FILE *outFile;
@@ -1208,6 +1274,7 @@ int RunSplit(const char *inFile, int demoIdx, const char *outFilename)
 #endif
 			} else {
 				outFile = fopen( curOutFilename, "wb" );
+				Q_strncpyz( states[d].outPath, curOutFilename, sizeof( states[d].outPath ) );
 			}
 			if ( !outFile ) {
 				printf( "Couldn't open output file\n" );
@@ -1810,6 +1877,14 @@ advanceLoop:
 		}
 		free( states[d].ctx );
 		fclose( states[d].outFile );
+		if ( states[d].outPath[0] && demo->fileMtime != 0 ) {
+			struct utimbuf times;
+			struct stat st;
+			time_t mtime = (time_t)(unsigned int)demo->fileMtime;
+			times.actime = ( stat( states[d].outPath, &st ) == 0 ) ? st.st_atime : mtime;
+			times.modtime = mtime;
+			utime( states[d].outPath, &times );
+		}
 	}
 	free( states );
 	FreeCombinedGamestates( cctx );
@@ -1838,7 +1913,11 @@ int main(int argc, char** argv)
 {
 	if ( argc < 3 ) {
 		printf( "No file specified.\n"
-				"Usage: \"%s\" infile.dm_26 clientnum demo.dm_26\n", argv[0] );
+				"Usage: \"%s\" infile.dm_26 <demoIdx|-1|-2|-3> [outfile_or_dir]\n"
+				"  demoIdx >= 0 : extract single demo by index (default filename from metadata)\n"
+				"  -1           : list embedded demo metadata\n"
+				"  -2           : extract all demos as <dir>/split_<idx>.dm_26\n"
+				"  -3           : extract all demos as <dir>/<original_filename>\n", argv[0] );
 		//system( "pause" );
 		return -1;
 	}
@@ -1846,5 +1925,5 @@ int main(int argc, char** argv)
 	int clientnum = atoi(argv[2] );
 	const char *inFile = argv[1];
 	const char *outFile = argc > 3 ? argv[3] : "";
-	RunSplit( inFile, clientnum, outFile );
+	return RunSplit( inFile, clientnum, outFile ) == 0 ? 0 : 1;
 }
